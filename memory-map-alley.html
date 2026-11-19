@@ -1,0 +1,1253 @@
+<!--
+  Memory Map — a 3D web walk through Bogwang-dong's alleys and Gwangju Theater
+  © 2026 Sumin Kim · concept, code, design, documentary photos and video
+
+  If you'd like to reuse any part of this work, please get in touch first: 0202sally@gmail.com
+
+  Built with: Three.js (MIT), Bricktown 3D assets (loafbrr), Gwangju Theater 3D asset (Unity Asset Store)
+-->
+<meta name="author" content="Sumin Kim">
+<meta name="copyright" content="© 2026 Sumin Kim">
+<meta charset="utf-8">
+<title>기억 지도</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the alley fills the screen; where-you-are top left, who-is-here top right, a floor-style year column on the right edge. Single dark look, by choice. */
+:root{
+  --fog:#17191d;         /* night fog, page ground */
+  --panel:rgba(23,25,29,.62);
+  --ink:#e6e3dc;         /* text */
+  --dim:#8d8f93;         /* secondary text */
+  --line:rgba(230,227,220,.14);
+  --ghost:#f4e7c4;       /* the one warm accent: ghost light */
+  --on-ghost:#1b1a17;
+  --f-ui:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:300;overflow:hidden;-webkit-tap-highlight-color:transparent;user-select:none}
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.hud{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;pointer-events:none;
+  padding-top:calc(16px + env(safe-area-inset-top,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.place{display:grid;gap:4px;min-width:0;background:var(--panel);padding:10px 12px;border-radius:14px;backdrop-filter:blur(6px)}
+.hint span{background:var(--panel);padding:5px 12px;border-radius:999px}
+.place b{font-weight:500;font-size:15px;letter-spacing:.08em}
+.place span{font-family:var(--f-mono);font-size:11px;color:var(--dim);letter-spacing:.06em}
+.place .quiet{display:none}
+.place .pmeta span{font-size:inherit;letter-spacing:inherit}
+.place em{font-style:normal;font-size:12px;color:var(--ink);opacity:.8}
+.here{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);padding:6px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel);backdrop-filter:blur(6px);white-space:nowrap}
+.here i{width:7px;height:7px;border-radius:50%;background:var(--ghost);box-shadow:0 0 8px var(--ghost)}
+.here b{color:var(--ink);font-weight:400;font-variant-numeric:tabular-nums}
+
+/* year column, read like the floor buttons on a map */
+.years{position:fixed;top:50%;transform:translateY(-50%);right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:2px;padding:4px;
+  border:1px solid var(--line);border-radius:14px;background:var(--panel);backdrop-filter:blur(8px)}
+.years small{font-size:10px;color:var(--dim);text-align:center;letter-spacing:.12em;padding:4px 0 2px}
+.years button{appearance:none;border:0;background:transparent;color:var(--ink);font-family:var(--f-mono);font-size:13px;font-weight:500;
+  width:56px;height:40px;border-radius:10px;cursor:pointer;font-variant-numeric:tabular-nums;transition:background .2s,color .2s}
+.years button:hover{background:rgba(244,231,196,.1)}
+.years button[aria-pressed="true"]{background:var(--ghost);color:var(--on-ghost)}
+.years button:focus-visible{outline:2px solid var(--ghost);outline-offset:1px}
+.years button[data-empty]::after{content:"";display:block;width:4px;height:4px;border-radius:50%;margin:2px auto 0;background:currentColor;opacity:.45}
+
+.hint{position:fixed;left:0;right:0;text-align:center;font-size:12px;color:var(--dim);pointer-events:none;letter-spacing:.02em;transition:opacity .8s;
+  bottom:calc(22px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.empty{position:fixed;left:0;right:0;text-align:center;pointer-events:none;display:grid;gap:6px;justify-items:center;
+  bottom:calc(64px + env(safe-area-inset-bottom,0px));
+  padding-left:max(88px,env(safe-area-inset-left,0px));padding-right:max(88px,env(safe-area-inset-right,0px))}
+.empty b{font-weight:400;font-size:15px;color:var(--ink);text-wrap:balance}
+.empty span{font-size:12px;color:var(--dim);text-wrap:balance;max-width:34ch}
+.nogl{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--dim)}
+@media (max-width:420px){.empty{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(84px,env(safe-area-inset-right,0px))}}
+
+.right{display:grid;gap:8px;justify-items:end}
+/* choosing a place, like picking a server */
+.spaceBtn{pointer-events:auto;justify-self:start;appearance:none;font:inherit;font-size:13px;font-weight:400;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer;backdrop-filter:blur(6px)}
+.spaceBtn:focus-visible,.spaceMenu button:focus-visible{outline:2px solid var(--ghost);outline-offset:2px}
+.spaceMenu{pointer-events:auto;display:grid;gap:4px;padding:4px;width:min(300px,calc(100vw - 32px));background:#1f2126;border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.spaceMenu button{appearance:none;text-align:left;font:inherit;color:var(--ink);background:transparent;border:0;border-radius:10px;padding:9px 10px;cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:2px 8px}
+.spaceMenu button:hover,.spaceMenu button[aria-current="true"]{background:rgba(244,231,196,.1)}
+.spaceMenu b{font-weight:500;font-size:14px}.spaceMenu span{grid-column:1;font-size:11.5px;color:var(--dim)}
+.spaceMenu i{grid-row:1/3;grid-column:2;align-self:center;font-style:normal;font-size:11px;color:var(--ghost);font-variant-numeric:tabular-nums}
+#fade{position:fixed;inset:0;background:var(--fog);opacity:0;pointer-events:none;transition:opacity .45s}
+#fade.on{opacity:1}
+#errBox{position:fixed;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));top:calc(130px + env(safe-area-inset-top,0px));margin:auto;max-width:420px;background:#3a1f1c;color:#ffd9d2;border:1px solid #8a4a40;border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-all;z-index:20}
+.sound{pointer-events:auto;appearance:none;font:inherit;font-size:12px;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;cursor:pointer;display:flex;gap:6px;align-items:center;backdrop-filter:blur(6px)}
+.sound svg{width:14px;height:14px}
+.sound[aria-pressed="true"]{color:var(--ink)}
+.sound:focus-visible{outline:2px solid var(--ghost);outline-offset:2px}
+
+/* memory card: a print you pick up from the alley */
+.card{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));width:min(340px,calc(100% - 32px));
+  max-height:calc(100% - 120px);overflow:auto;background:#1f2126;border:1px solid var(--line);border-radius:16px;padding:12px;display:grid;gap:10px;
+  box-shadow:0 18px 50px rgba(0,0,0,.45);animation:rise .35s ease-out}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.card figure{margin:0;position:relative}
+.card img{display:block;width:100%;aspect-ratio:480/340;border-radius:8px;background:#2a2c31}
+.card figcaption{position:absolute;left:8px;top:8px;font-size:10px;letter-spacing:.08em;color:#e6e3dc;background:rgba(0,0,0,.45);padding:2px 7px;border-radius:999px}
+.card .meta{display:flex;justify-content:space-between;gap:8px;font-family:var(--f-mono);font-size:11px;color:var(--dim);letter-spacing:.04em}
+.card .tag{border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-family:var(--f-ui)}
+.card h2{margin:0;font-size:17px;font-weight:500;text-wrap:balance}
+.card p{margin:0;font-size:14px;line-height:1.7;color:var(--ink)}
+.card .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.card .foot div{display:flex;gap:6px}
+.btn{appearance:none;font:inherit;font-size:13px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:10px;padding:7px 12px;cursor:pointer}
+.btn.primary{background:var(--ghost);color:var(--on-ghost);border-color:var(--ghost);font-weight:500}
+.btn:focus-visible{outline:2px solid var(--ghost);outline-offset:2px}
+.card .thumbs{display:flex;gap:6px;overflow-x:auto}
+.card .thumbs button{appearance:none;border:1px solid var(--line);padding:0;border-radius:6px;width:52px;height:38px;flex:none;cursor:pointer;background:#2a2c31 center/cover no-repeat}
+.card .thumbs button[aria-pressed="true"]{border-color:var(--ghost)}
+.sheet .contact{margin:0;font-size:11px;color:var(--dim);letter-spacing:.03em}
+.sheet .contact a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.sitBtn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(52px + env(safe-area-inset-bottom,0px));appearance:none;cursor:pointer;border:1px solid rgba(244,231,196,.55);background:var(--panel);color:var(--ink);font:inherit;font-size:14px;padding:10px 20px;border-radius:999px;backdrop-filter:blur(6px);box-shadow:0 0 18px rgba(244,231,196,.18)}
+.sitBtn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.btn.danger{color:#f0b4a8;border-color:rgba(240,180,168,.4)}
+
+/* leave a memory: the round button and its sheet */
+.fab{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(18px + env(safe-area-inset-bottom,0px));appearance:none;border:0;cursor:pointer;
+  display:flex;align-items:center;gap:8px;padding:12px 18px 12px 14px;border-radius:999px;background:var(--ghost);color:var(--on-ghost);font:inherit;font-size:14px;font-weight:500;
+  box-shadow:0 10px 30px rgba(0,0,0,.4),0 0 24px rgba(244,231,196,.25)}
+.fab svg{width:20px;height:20px}
+.fab:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.scrim{position:fixed;inset:0;background:rgba(8,9,12,.6);display:flex;align-items:flex-end;justify-content:center;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));padding-top:calc(16px + env(safe-area-inset-top,0px))}
+.sheet{width:100%;max-width:440px;max-height:100%;overflow:auto;background:#1f2126;border:1px solid var(--line);border-radius:18px;padding:18px;display:grid;gap:12px}
+.sheet h2{margin:0;font-size:18px;font-weight:500}
+.sheet .sub{margin:0;font-size:12.5px;color:var(--dim)}
+.sheet label{display:grid;gap:6px;font-size:12px;color:var(--dim);letter-spacing:.02em}
+.sheet input:not([type=checkbox]),.sheet select,.sheet textarea{font:inherit;font-size:15px;font-weight:300;color:var(--ink);background:#15171b;border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0}
+.sheet textarea{resize:vertical;line-height:1.6}
+.sheet input:focus,.sheet select:focus,.sheet textarea:focus{outline:2px solid var(--ghost);outline-offset:0}
+.sheet input[type=file]{font-size:13px;padding:7px}
+.sheet .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sheet .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.sheet .check input{width:18px;height:18px;accent-color:#f4e7c4}
+.sheet .thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.sheet .thumbs img{width:56px;height:42px;object-fit:cover;border-radius:6px}
+.sheet .err{margin:0;font-size:13px;color:#f0b4a8;min-height:0}
+.sheet .err:empty{display:none}
+.sheet .btns{display:flex;justify-content:flex-end;gap:8px}
+@media (max-width:520px){body.card-open .years,body.card-open .fab{opacity:0;pointer-events:none}.card{width:auto;right:max(16px,env(safe-area-inset-right,0px))}}
+@media (prefers-reduced-motion:reduce){.card{animation:none}}
+</style>
+
+<div id="fade" aria-hidden="true"></div>
+<div id="errBox" role="alert" hidden></div>
+<canvas id="scene" aria-label="안개 낀 골목 3D 장면. 바닥을 누르면 버블 속 유령이 그곳으로 걸어가요. 오른쪽 연도 버튼으로 다른 해의 골목으로 바뀌어요."></canvas>
+<div class="hud">
+  <div class="place"><b>기억 지도</b><button class="spaceBtn" id="spaceBtn" type="button" aria-haspopup="true" aria-expanded="false">보광동 골목 <span aria-hidden="true">▾</span></button>
+    <div class="spaceMenu" id="spaceMenu" hidden>
+      <button type="button" data-sp="bogwang"><b>보광동 골목</b><span>서울 용산구 · 재개발로 비어 가는 동네</span><i id="cnt-bogwang"></i></button>
+      <button type="button" data-sp="theater"><b>광주극장</b><span>광주 동구 · 1935년부터 이어진 단관 극장</span><i id="cnt-theater"></i></button>
+    </div><span class="pmeta"><span id="placeYear">2026</span> · <span id="memCount">기억 3</span></span><span class="quiet"><em id="placeNote">철거를 앞둔 골목</em><span id="verNote">버전 28</span><span id="loadNote"></span></span></div>
+  <div class="right">
+    <div class="here" title="예시 방문자 3명 포함"><i></i>함께 있는 사람 <b id="count">4</b></div>
+    <button class="sound" id="viewBtn" type="button" aria-pressed="false" title="V 키로도 바꿀 수 있어요"><span id="viewLabel">시점: 뒤에서</span></button>
+    <button class="sound" id="sound" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path id="soundWave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg><span id="soundLabel">소리 켜기</span></button>
+  </div>
+</div>
+<section class="card" id="card" hidden role="dialog" aria-labelledby="cardTitle">
+  <figure id="cardFig"><img id="cardImg" alt=""><figcaption id="cardCap">예시 사진</figcaption></figure>
+  <div class="thumbs" id="cardThumbs" hidden></div>
+  <div class="meta"><span id="cardWhen"></span><span class="tag" id="cardTag">예시 기억</span></div>
+  <h2 id="cardTitle"></h2>
+  <p id="cardText"></p>
+  <div class="foot"><span id="cardWho">익명</span><div><button class="btn danger" id="cardDelete" type="button" hidden>지우기</button><button class="btn" id="cardReplay" type="button">소리 다시 듣기</button><button class="btn primary" id="cardClose" type="button">닫기</button></div></div>
+</section>
+<button class="fab" id="fab" type="button" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l3.5 6-3.5 12-3.5-12z"/><path d="M12 9v4"/></svg>기억 남기기</button>
+<div class="scrim" id="leaveScrim" hidden>
+  <form class="sheet" id="leaveForm" aria-labelledby="leaveTitle" novalidate>
+    <h2 id="leaveTitle">이 자리에 기억 남기기</h2>
+    <p class="sub">지금 유령이 서 있는 자리에 기억 캡슐이 생겨요. 기억 속 연도와 가까운 해의 골목에 놓여요.</p>
+    <div class="row2">
+      <label for="fYear">기억 속 연도<input id="fYear" type="number" inputmode="numeric" min="1950" max="2026" required></label>
+      <label for="fSeason">계절<select id="fSeason"><option value="">고르지 않음</option><option>봄</option><option>여름</option><option>가을</option><option>겨울</option></select></label>
+    </div>
+    <label for="fTitle">제목<input id="fTitle" maxlength="24" placeholder="예: 슈퍼 앞 평상" required></label>
+    <label for="fText">기억<textarea id="fText" rows="4" maxlength="600" placeholder="그곳에서 있었던 일을 한 문장 이상 적어 주세요" required></textarea></label>
+    <label for="fPhotos" id="fPhotosLabel">사진 (최대 5장)<input id="fPhotos" type="file" accept="image/*" multiple></label>
+    <div class="thumbs" id="fThumbs"></div>
+    <label for="fSound" id="fSoundLabel">소리 (1개, 5MB까지)<input id="fSound" type="file" accept="audio/*"></label>
+    <label class="check" for="fAnon"><input id="fAnon" type="checkbox">이름 없이 남기기</label>
+    <p class="err" id="fErr" role="alert"></p>
+    <p class="contact">Sumin Kim · <a href="mailto:0202sally@gmail.com">0202sally@gmail.com</a></p>
+    <div class="btns"><button type="button" class="btn" id="fCancel">닫기</button><button type="submit" class="btn primary" id="fSubmit">기억 남기기</button></div>
+  </form>
+</div>
+<nav class="years" aria-label="연도 고르기">
+  <small>연도</small>
+  <button type="button" id="y2026" data-year="2026" aria-pressed="true">2026</button>
+  <button type="button" id="y2016" data-year="2016" aria-pressed="false">2016</button>
+  <button type="button" id="y2006" data-year="2006" aria-pressed="false">2006</button>
+  <button type="button" id="y1996" data-year="1996" aria-pressed="false" data-empty aria-label="1996, 아직 남겨진 모습 없음">1996</button>
+</nav>
+<div class="empty" id="empty" hidden>
+  <b>1996년의 골목 모습은 아직 아무도 남기지 않았어요</b>
+  <span>안개 속에 기억 캡슐만 떠 있어요. 기억이 쌓이면 이 해의 골목이 다시 지어져요</span>
+</div>
+<button class="sitBtn" id="sitBtn" type="button" hidden>자리에 앉기</button>
+<p class="hint" id="hint"><span>빛 캡슐을 누르면 기억이 열려요 · 오른쪽 위 시점 버튼이나 V 키로 1인칭 · 오른쪽에서 연도 바꾸기</span></p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.6.9/umd/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(function(){
+'use strict';
+const errBox=document.getElementById('errBox');
+/* a short log of what happened, saved privately for the viewer so problems can be looked at later */
+const DIAG=[];let diagTimer=null;
+function diag(m){DIAG.push(new Date().toISOString().slice(11,19)+' '+String(m).slice(0,200));if(DIAG.length>80)DIAG.shift();
+  clearTimeout(diagTimer);diagTimer=setTimeout(()=>{try{if(db&&myUid)db.doc('data/users/'+myUid+'/debug').set({log:DIAG.slice(),ver:28,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});}catch(e){}},1500);}
+let lastErr='';
+/* note every press and key the page actually receives (first 20), to tell missing input from broken features */
+let inputSeen=0;
+['pointerdown','click','keydown','touchstart'].forEach(t=>addEventListener(t,e=>{if(inputSeen++<20){const el=e.target;diag('in '+t+' '+(el&&(el.id||el.className||el.tagName)));}},true));
+addEventListener('focus',()=>diag('window focus'));addEventListener('blur',()=>diag('window blur'));
+document.addEventListener('visibilitychange',()=>diag('visible='+document.visibilityState));
+function showErr(msg){diag('ERR '+msg);if(msg===lastErr)return;lastErr=msg;errBox.hidden=false;errBox.textContent=('문제가 생겼어요: '+msg).slice(0,400);}
+addEventListener('error',e=>showErr(e.message||'알 수 없는 오류'));
+addEventListener('unhandledrejection',e=>{const r=e.reason;showErr((r&&(r.code||r.message))||String(r));});
+const canvas=document.getElementById('scene');
+let renderer;
+try{ if(!window.THREE) throw 0; renderer=new THREE.WebGLRenderer({canvas,antialias:true}); }
+catch(e){ const d=document.createElement('div');d.className='nogl';d.textContent='이 기기에서는 3D 화면을 열 수 없어요. 다른 브라우저로 열어 주세요.';document.body.appendChild(d);return; }
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+renderer.outputEncoding=THREE.sRGBEncoding;
+
+/* ---------- year moods ---------- */
+const YEARS={
+  2026:{fog:0xc7ccd2,sky:0xe4ecf5,gnd:0x7a6450,hemi:1.05,density:.017,note:'철거를 앞둔 골목'},
+  2016:{fog:0xcdd8e4,sky:0xeef4fb,gnd:0x7a6c58,hemi:1.15,density:.014,note:'사람이 살던 골목'},
+  2006:{fog:0xdccfb6,sky:0xf4e8cc,gnd:0x846a4c,hemi:1.1,density:.016,note:'낮은 집들의 골목'},
+  1996:{fog:0xbfc3c8,sky:0xd6dade,gnd:0x5a5a56,hemi:.85,density:.03,note:'아직 남겨진 기억이 없는 해'}
+};
+const ORDER=[2026,2016,2006,1996];
+let year=2026;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(YEARS[year].fog);
+scene.fog=new THREE.FogExp2(YEARS[year].fog,YEARS[year].density);
+const camera=new THREE.PerspectiveCamera(55,1,0.1,200);
+/* light bleed: anything bright (lamps, neon, capsules, photos) glows into the fog, like the game */
+let composer=null,bloom=null;
+try{if(THREE.EffectComposer&&THREE.UnrealBloomPass&&THREE.GammaCorrectionShader){
+  composer=new THREE.EffectComposer(renderer);composer.addPass(new THREE.RenderPass(scene,camera));
+  bloom=new THREE.UnrealBloomPass(new THREE.Vector2(256,256),.28,.5,.94);composer.addPass(bloom);
+  composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));}}catch(e){composer=null;}
+const rnd=(a,b)=>a+Math.random()*(b-a);
+/* seeded random so every year is built on the same lots */
+function seeded(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const R=seeded(1996);const rr=(a,b)=>a+R()*(b-a);
+
+/* ---------- textures, drawn in code ---------- */
+function cv(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return [c,c.getContext('2d')];}
+function asphalt(){const [c,g]=cv(256,256);g.fillStyle='#3a3b3d';g.fillRect(0,0,256,256);
+  for(let i=0;i<7000;i++){const v=rnd(40,90)|0;g.fillStyle=`rgba(${v},${v},${v+2},.55)`;g.fillRect(rnd(0,256),rnd(0,256),1.5,1.5);}
+  g.strokeStyle='rgba(20,20,22,.6)';g.lineWidth=1;for(let k=0;k<6;k++){g.beginPath();let x=rnd(0,256),y=rnd(0,256);g.moveTo(x,y);for(let s=0;s<8;s++){x+=rnd(-14,14);y+=rnd(-14,14);g.lineTo(x,y);}g.stroke();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(10,20);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;}
+/* a wall with a window grid; a second canvas marks the lit windows */
+function wallPair(tone,warm,lit,small){const W=128,H=256,[c,g]=cv(W,H),[e,ge]=cv(W,H);
+  g.fillStyle=`rgb(${tone+warm},${tone},${tone-warm-4})`;g.fillRect(0,0,W,H);ge.fillStyle='#000';ge.fillRect(0,0,W,H);
+  for(let i=0;i<2500;i++){const v=tone+rnd(-18,10)|0;g.fillStyle=`rgba(${v},${v},${v},.35)`;g.fillRect(rnd(0,W),rnd(0,H),2,2);}
+  const sx=small?36:40,sy=small?52:46,ww=small?20:24,wh=small?22:28;
+  for(let y=18;y<H-20;y+=sy)for(let x=14;x<W-18;x+=sx){
+    g.fillStyle='#232427';g.fillRect(x,y,ww,wh);g.fillStyle='rgba(255,255,255,.06)';g.fillRect(x,y,ww,3);
+    if(Math.random()<lit){ge.fillStyle=warm>4?'#d8b87e':'#c9b98f';ge.fillRect(x+2,y+2,ww-4,wh-4);}}
+  g.fillStyle='rgba(0,0,0,.25)';g.fillRect(0,H-10,W,10);
+  const a=new THREE.CanvasTexture(c),b=new THREE.CanvasTexture(e);a.encoding=b.encoding=THREE.sRGBEncoding;
+  a.wrapS=a.wrapT=b.wrapS=b.wrapT=THREE.RepeatWrapping;return [a,b];}
+function glowTex(){const [c,g]=cv(128,128);const r=g.createRadialGradient(64,64,0,64,64,64);
+  r.addColorStop(0,'rgba(255,255,255,1)');r.addColorStop(.2,'rgba(255,255,255,.5)');r.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=r;g.fillRect(0,0,128,128);return new THREE.CanvasTexture(c);}
+function shadowTex(){const [c,g]=cv(64,64);const r=g.createRadialGradient(32,32,0,32,32,32);r.addColorStop(0,'rgba(0,0,0,.55)');r.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=r;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c);}
+function labelTex(text){const [c,g]=cv(256,64);g.font='400 26px "IBM Plex Sans KR", sans-serif';g.textAlign='center';g.textBaseline='middle';
+  const w=Math.min(250,g.measureText(text).width+28);g.fillStyle='rgba(20,22,26,.6)';g.beginPath();g.roundRect?g.roundRect(128-w/2,12,w,40,20):g.rect(128-w/2,12,w,40);g.fill();
+  g.fillStyle='rgba(240,238,232,.95)';g.fillText(text,128,32);return new THREE.CanvasTexture(c);}
+function signTex(text,bg,fg){const [c,g]=cv(512,128);g.fillStyle=bg;g.fillRect(0,0,512,128);g.strokeStyle='rgba(0,0,0,.25)';g.lineWidth=6;g.strokeRect(3,3,506,122);
+  g.fillStyle=fg;g.font='600 64px "Apple SD Gothic Neo","Malgun Gothic",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(text,256,68);
+  const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;return t;}
+function xTex(){const [c,g]=cv(128,128);g.strokeStyle='rgba(150,48,40,.75)';g.lineWidth=11;g.lineCap='round';
+  g.beginPath();g.moveTo(22,24);g.lineTo(104,100);g.moveTo(102,22);g.lineTo(26,104);g.stroke();return new THREE.CanvasTexture(c);}
+function fenceTex(){const [c,g]=cv(256,128);g.fillStyle='#8f9090';g.fillRect(0,0,256,128);
+  for(let x=0;x<256;x+=32){g.fillStyle='rgba(0,0,0,.18)';g.fillRect(x,0,2,128);}
+  g.fillStyle='rgba(0,0,0,.25)';g.fillRect(0,108,256,20);g.fillStyle='rgba(40,40,40,.55)';g.font='600 24px sans-serif';g.textAlign='center';g.fillText('출입금지 · 공사구간',128,64);
+  const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;return t;}
+const GLOW=glowTex(),SHADOW=shadowTex(),XMARK=xTex(),FENCE=fenceTex();
+const WALLS={
+  2026:[wallPair(96,0,.03),wallPair(84,0,.02),wallPair(108,0,.04)],
+  2016:[wallPair(112,1,.22),wallPair(98,0,.2),wallPair(124,2,.25)],
+  2006:[wallPair(118,8,.42,true),wallPair(104,6,.4,true),wallPair(130,10,.45,true)]
+};
+
+/* ---------- light ---------- */
+const hemi=new THREE.HemisphereLight(YEARS[year].sky,YEARS[year].gnd,YEARS[year].hemi);scene.add(hemi);
+/* low afternoon sun, as in the footage */
+const moon=new THREE.DirectionalLight(0xffdcb0,1.35);moon.position.set(22,18,-14);scene.add(moon);
+
+/* ---------- walkable ground: the main alley and one side lane ---------- */
+/* two real places; each has the ground you can walk on and a height for every point of it */
+const SP={
+  bogwang:{name:'보광동 골목',areas:[[-2.3,2.3,-38,38],[2.3,18.2,-12.1,-8.3]],spawn:[0,14],fogK:1},
+  theater:{name:'광주극장',note:'1935년부터 이어진 단관 극장',areas:[[-14,14,18.7,24],[-3.3,-1.3,17.2,19],[-5.9,-4.3,17.2,19],[4.4,5.9,17.2,19],[-8.6,8.6,12.6,17.4],[-3.9,-2.5,11.3,13],[2.5,3.9,11.3,13],[-8,8,-11,11.6]],spawn:[-2.3,22.5],fogK:.4}};
+let space='bogwang',AREAS=SP.bogwang.areas;
+/* the stalls slope down toward the screen (measured from the model) */
+const HALL=[[9.5,.54],[8,.35],[5,-.12],[2,-.79],[-1,-1.23],[-4,-1.56],[-7,-2],[-10,-2.46],[-12,-2.46]];
+function floorAt(x,z){if(space!=='theater')return 0;if(z>17.8)return .4;if(z>=9.5)return .54;
+  for(let i=1;i<HALL.length;i++){const [z0,y0]=HALL[i-1],[z1,y1]=HALL[i];if(z>=z1)return y0+(y1-y0)*(z0-z)/(z0-z1);}return -2.46;}
+const inside=(x,z)=>AREAS.some(a=>x>=a[0]&&x<=a[1]&&z>=a[2]&&z<=a[3]);
+function clampToArea(x,z,areas){let best=null,bd=1e9;for(const a of (areas||AREAS)){const cx=Math.min(a[1],Math.max(a[0],x)),cz=Math.min(a[3],Math.max(a[2],z));const d=(cx-x)**2+(cz-z)**2;if(d<bd){bd=d;best=[cx,cz];}}return best;}
+
+/* wet asphalt: low roughness so lamps and signs leave streaks of light on the ground */
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(80,110),new THREE.MeshStandardMaterial({map:asphalt(),roughness:.9,metalness:0}));
+ground.rotation.x=-Math.PI/2;scene.add(ground);
+
+const CONCRETE=new THREE.MeshStandardMaterial({color:0x5b5c5e,roughness:.95});
+const METAL=new THREE.MeshStandardMaterial({color:0x6c6f73,roughness:.6,metalness:.3});
+const RUBBLE=new THREE.MeshStandardMaterial({color:0x58575a,roughness:1,flatShading:true});
+const ROOF06=[new THREE.MeshStandardMaterial({color:0x3e4652,roughness:.8,flatShading:true}),new THREE.MeshStandardMaterial({color:0x5a463c,roughness:.85,flatShading:true})];
+
+/* ---------- lots: the same plots of land, built differently each year ---------- */
+const lots=[];
+function rowZ(side,z0,z1){let z=z0;while(z<z1-1){const w=Math.min(rr(4,7.5),z1-z);lots.push({kind:'x',side,cx:side*5.8,cz:z+w/2,sx:6,sz:w-.15,r1:R(),r2:R(),r3:R(),r4:R()});z+=w;}}
+function rowX(cz,x0,x1){let x=x0;while(x<x1-1){const w=Math.min(rr(4,7),x1-x);lots.push({kind:'z',nz:Math.sign(-10.2-cz),cx:x+w/2,cz,sx:w-.15,sz:6,r1:R(),r2:R(),r3:R(),r4:R()});x+=w;}}
+rowZ(-1,-42,42);rowZ(1,-42,-12.5);rowZ(1,-7.9,42);rowX(-15.5,8.8,20);rowX(-4.9,8.8,20);
+const endCaps=[{cx:21.5,cz:-10.2,sx:3,sz:10,h:7},{cx:0,cz:-45,sx:12,sz:4,h:9},{cx:0,cz:45,sx:12,sz:4,h:9}];
+
+/* put something flat on the side of a lot that faces the alley */
+function onFace(obj,lot,u,y,out){
+  if(lot.kind==='x'){const nx=-lot.side;obj.position.set(lot.side*2.8+nx*(out||.02),y,lot.cz+u);obj.rotation.y=nx>0?Math.PI/2:-Math.PI/2;}
+  else{const nz=lot.nz;obj.position.set(lot.cx+u,y,lot.cz+nz*(3+(out||.02)));obj.rotation.y=nz>0?0:Math.PI;}
+  return obj;}
+const span=lot=>lot.kind==='x'?lot.sz:lot.sx;
+
+const SHOPS={2006:['연탄','구멍가게','이발소','쌀집','양장점','만화방','전파사','목욕탕','다방'],
+             2016:['동네슈퍼','세탁소','미용실','분식','철물점','복덕방','반찬가게','수선','PC방']};
+const SIGN_BG={2006:[['#e9dfc6','#3a3328'],['#c9d6dc','#22323a'],['#d9c3a9','#3a2a1c']],2016:[['#eeeeea','#5a2a26'],['#dfe6e8','#1f3640'],['#f0e6cf','#3b3226']]};
+
+const groups={},boxes={};
+ORDER.forEach(y=>{groups[y]=new THREE.Group();scene.add(groups[y]);groups[y].visible=(y===year);boxes[y]=[];});
+
+function wallMat(set,lotSize,h){const [map,em]=set[(Math.random()*set.length)|0];const m=map.clone(),e=em.clone();m.needsUpdate=e.needsUpdate=true;
+  const rx=Math.max(1,Math.round(lotSize/3.2)),ry=Math.max(1,Math.round(h/5.5));m.repeat.set(rx,ry);e.repeat.set(rx,ry);
+  return new THREE.MeshStandardMaterial({map:m,emissive:0xffffff,emissiveMap:e,emissiveIntensity:.5,roughness:.95});}
+function block(G,y,lot,h,set){const b=new THREE.Mesh(new THREE.BoxGeometry(lot.sx,h,lot.sz),wallMat(set,Math.max(lot.sx,lot.sz),h));b.position.set(lot.cx,h/2,lot.cz);G.add(b);
+  const box={cx:lot.cx,cz:lot.cz,w:lot.sx,d:lot.sz,h};boxes[y].push(box);b.userData.box=box;return b;}
+function sign(G,lot,text,pal,yPos,dim){const w=Math.min(span(lot)*.7,3.6);
+  const mat=dim?new THREE.MeshStandardMaterial({map:signTex(text,pal[0],pal[1]),color:0x5d5d5d,roughness:1}):new THREE.MeshBasicMaterial({map:signTex(text,pal[0],pal[1]),color:0xc8c2b4});
+  const s=new THREE.Mesh(new THREE.PlaneGeometry(w,w/4),mat);G.add(onFace(s,lot,(lot.r4-.5)*(span(lot)-w)*.6,yPos,.08));}
+function acUnits(G,lot,h){const n=(lot.r4*3)|0;for(let k=0;k<n;k++){const ac=new THREE.Mesh(new THREE.BoxGeometry(.9,.6,.5),METAL);G.add(onFace(ac,lot,(R()-.5)*(span(lot)-1.4),rr(1.6,Math.max(1.8,h-1)),.25));}}
+
+lots.forEach((lot,i)=>{
+  /* 2006: low two- and three-storey houses with hipped roofs */
+  {const G=groups[2006],h=2.8+lot.r1*2.6;block(G,2006,lot,h,WALLS[2006]);
+   const roof=new THREE.Group();const cone=new THREE.Mesh(new THREE.ConeGeometry(Math.SQRT1_2,1,4),ROOF06[(lot.r3*2)|0]);cone.rotation.y=Math.PI/4;roof.add(cone);
+   roof.scale.set(lot.sx*1.08,.9+lot.r2*.6,lot.sz*1.08);roof.position.set(lot.cx,h+roof.scale.y/2,lot.cz);G.add(roof);
+   if(lot.r2<.38)sign(G,lot,SHOPS[2006][i%SHOPS[2006].length],SIGN_BG[2006][i%3],Math.min(2.3,h-.5));}
+  /* 2016: villas built over the old houses */
+  const h16=4.5+lot.r1*5.5;
+  lot.idx=i;lot.proc={};
+  {const G=groups[2016];const b16=block(G,2016,lot,h16,WALLS[2016]);
+   const lip=new THREE.Mesh(new THREE.BoxGeometry(lot.sx+.2,.25,lot.sz+.2),CONCRETE);lip.position.set(lot.cx,h16+.12,lot.cz);G.add(lip);lot.proc[2016]=[b16,lip];
+   if(lot.r2<.42)sign(G,lot,SHOPS[2016][i%SHOPS[2016].length],SIGN_BG[2016][i%3],2.9);acUnits(G,lot,h16);}
+  /* 2026: the same villas, emptied; some lots already cleared behind a fence */
+  {const G=groups[2026];
+   if(lot.r3<.4){
+     const n=6+((lot.r4*6)|0);for(let k=0;k<n;k++){const r=new THREE.Mesh(k%2?new THREE.DodecahedronGeometry(rr(.4,1.1),0):new THREE.BoxGeometry(rr(.6,1.6),rr(.3,.8),rr(.6,1.4)),RUBBLE);
+       r.position.set(lot.cx+(R()-.5)*lot.sx*.8,rr(.1,.45),lot.cz+(R()-.5)*lot.sz*.8);r.rotation.set(R()*3,R()*3,R()*3);G.add(r);}
+     boxes[2026].push({cx:lot.cx,cz:lot.cz,w:lot.sx*.8,d:lot.sz*.8,h:.8});
+     const f=new THREE.Mesh(new THREE.PlaneGeometry(span(lot)-.2,2.2),new THREE.MeshStandardMaterial({map:FENCE,roughness:1,side:THREE.DoubleSide}));G.add(onFace(f,lot,0,1.1,.05));
+   }else{
+     const b26=block(G,2026,lot,h16,WALLS[2026]);
+     const lip=new THREE.Mesh(new THREE.BoxGeometry(lot.sx+.2,.25,lot.sz+.2),CONCRETE);lip.position.set(lot.cx,h16+.12,lot.cz);G.add(lip);lot.proc[2026]=[b26,lip];
+     if(lot.r2<.42)sign(G,lot,SHOPS[2016][i%SHOPS[2016].length],SIGN_BG[2016][i%3],2.9,true);
+     const x=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5),new THREE.MeshBasicMaterial({map:XMARK,transparent:true,depthWrite:false,color:0xb0b0b0}));
+     G.add(onFace(x,lot,(lot.r1-.5)*(span(lot)-2),rr(1.4,Math.min(3.5,h16-1)),.04));
+     const board=new THREE.Mesh(new THREE.PlaneGeometry(1.2,2),new THREE.MeshStandardMaterial({color:0x6b5e4c,roughness:1}));G.add(onFace(board,lot,(lot.r4-.5)*(span(lot)-1.6),1,.03));
+     acUnits(G,lot,h16);}
+  }
+});
+endCaps.forEach(c=>{[2026,2016,2006].forEach(y=>{const lot={cx:c.cx,cz:c.cz,sx:c.sx,sz:c.sz};block(groups[y],y,lot,y===2006?c.h*.55:c.h,WALLS[y]);});});
+
+/* 1996: no one has left this year yet, so only a faint outline of the oldest houses stands in the fog */
+{const lineMat=new THREE.LineBasicMaterial({color:0xf4e7c4,transparent:true,opacity:.16});
+ boxes[2006].forEach(b=>{const e=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w,b.h,b.d)),lineMat);e.position.set(b.cx,b.h/2,b.cz);groups[1996].add(e);});
+ boxes[1996]=boxes[2006];}
+
+/* ---------- things that stay across the newer years ---------- */
+const common=new THREE.Group();scene.add(common);
+for(const s of[-1,1]){const c=new THREE.Mesh(new THREE.BoxGeometry(.3,.12,84),CONCRETE);c.position.set(s*2.45,.06,0);common.add(c);}
+const WIRE=new THREE.LineBasicMaterial({color:0x0e0f11});
+const poles=[];
+for(let z=-34;z<=34;z+=11){const x=(poles.length%2?-1:1)*2.15;poles.push(new THREE.Vector3(x,7.2,z));
+  const p=new THREE.Mesh(new THREE.CylinderGeometry(.11,.15,7.4,8),CONCRETE);p.position.set(x,3.7,z);common.add(p);
+  const arm=new THREE.Mesh(new THREE.BoxGeometry(1.4,.08,.08),METAL);arm.position.set(x-Math.sign(x)*.6,5.6,z);common.add(arm);
+  const g=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xffd49a,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.12}));
+  g.scale.set(2.6,2.6,1);g.position.set(x-Math.sign(x)*1.2,5.45,z);common.add(g);}
+[1,3,5].forEach(i=>{const p=poles[i];const l=new THREE.PointLight(0xffc27a,1.6,16,2);l.position.set(p.x-Math.sign(p.x)*1.2,5.2,p.z);common.add(l);});
+function sag(a,b,amount){const pts=[];for(let i=0;i<=20;i++){const t=i/20;pts.push(new THREE.Vector3(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t-amount*4*t*(1-t),a.z+(b.z-a.z)*t));}
+  common.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),WIRE));}
+for(let i=0;i<poles.length-1;i++){for(const dy of[0,-.35,-.7]){const a=poles[i].clone(),b=poles[i+1].clone();a.y+=dy;b.y+=dy;sag(a,b,.9);}}
+poles.forEach((p,i)=>{if(i%2===0){sag(p,new THREE.Vector3(-2.8,rr(5,6.5),p.z+rr(-3,3)),.5);}});
+for(let i=0;i<9;i++){const z=rr(-34,34),s=R()<.5?-1:1;
+  const pot=new THREE.Mesh(new THREE.CylinderGeometry(.28,.22,.42,10),new THREE.MeshStandardMaterial({color:0x4d4a46,roughness:.9}));pot.position.set(s*2.05,.21,z);common.add(pot);
+  const leaf=new THREE.Mesh(new THREE.IcosahedronGeometry(.34,0),new THREE.MeshStandardMaterial({color:0x3d4640,roughness:1,flatShading:true}));leaf.position.set(s*2.05,.62,z);common.add(leaf);}
+
+/* ---------- neon signs that stick out over the alley ---------- */
+function neonTex(text,col){const [c,g]=cv(128,512);const hex='#'+col.toString(16).padStart(6,'0');
+  g.shadowColor=hex;g.shadowBlur=14;g.strokeStyle=hex;g.lineWidth=5;g.strokeRect(12,12,104,488);
+  const chars=[...text],step=440/chars.length;g.font='700 80px "Apple SD Gothic Neo","Malgun Gothic",sans-serif';g.textAlign='center';g.textBaseline='middle';
+  chars.forEach((ch,i)=>{const y=40+step*(i+.5);g.shadowBlur=20;g.fillStyle=hex;g.fillText(ch,64,y);g.shadowBlur=0;g.globalAlpha=.8;g.fillStyle='#fff';g.fillText(ch,64,y);g.globalAlpha=1;});
+  const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;return t;}
+const NEON={2016:[],2026:[],2006:[]}; /* no shop neon: this is a school project about a neighbourhood, not its nightlife */
+const neons=[];
+const neonLots=lots.filter(l=>l.kind==='x').filter((l,i)=>i%5===2);
+[2016,2026,2006].forEach(y=>NEON[y].forEach(([txt,col],i)=>{
+  const lot=neonLots[(i*2+(y===2006?1:0))%neonLots.length];if(!lot)return;
+  if(y===2026&&lot.r3<.4)return; /* that lot is already cleared */
+  const tex=neonTex(txt,col),sg=new THREE.Group();
+  sg.add(new THREE.Mesh(new THREE.BoxGeometry(.64,2.4,.08),new THREE.MeshStandardMaterial({color:0x1a1b1f,roughness:.6})));
+  const mats=[];for(const s of[1,-1]){const m=new THREE.MeshBasicMaterial({map:tex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
+    const f=new THREE.Mesh(new THREE.PlaneGeometry(.6,2.36),m);f.position.z=s*.045;if(s<0)f.rotation.y=Math.PI;sg.add(f);mats.push(m);}
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:col,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.35}));glow.scale.set(2.2,3.6,1);sg.add(glow);
+  sg.position.set(lot.side*2.8-lot.side*.36,y===2006?2.5:4.4,lot.cz+(lot.r4-.5)*(lot.sz-1.6));groups[y].add(sg);
+  neons.push({mats,glow,broken:y===2026,phase:rnd(0,9)});}));
+
+/* ---------- drifting motes of light, like dust caught in the lamps ---------- */
+const FN=260,fPos=new Float32Array(FN*3),fBase=new Float32Array(FN*4);
+for(let i=0;i<FN;i++){const lane=Math.random()<.18;fBase[i*4]=lane?rnd(3,17):rnd(-2.2,2.2);fBase[i*4+1]=rnd(.3,4);fBase[i*4+2]=lane?rnd(-11.8,-8.6):rnd(-36,36);fBase[i*4+3]=rnd(0,9);}
+const fGeo=new THREE.BufferGeometry();fGeo.setAttribute('position',new THREE.BufferAttribute(fPos,3));
+const motes=new THREE.Points(fGeo,new THREE.PointsMaterial({map:GLOW,color:0xffd58a,size:.13,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,opacity:.9}));
+motes.frustumCulled=false;scene.add(motes);
+let glassMat=null;
+function updateFx(dt,now){const tt=now/1000;if(glassMat)glassMat.opacity=.55+Math.sin(tt*3.1)*.25+Math.sin(tt*7.7)*.15;
+  for(let i=0;i<FN;i++){const b=i*4,ph=fBase[b+3];fPos[i*3]=fBase[b]+Math.sin(tt*.3+ph)*.6;fPos[i*3+1]=fBase[b+1]+Math.sin(tt*.5+ph*1.7)*.35;fPos[i*3+2]=fBase[b+2]+Math.cos(tt*.25+ph)*.8;}
+  fGeo.attributes.position.needsUpdate=true;motes.material.opacity=.3+Math.sin(tt*1.3)*.1;
+  neons.forEach(n=>{let o=1;if(n.broken){const k=Math.sin(tt*7+n.phase)+Math.sin(tt*13.3+n.phase*2);o=k>1.2?.15:(Math.random()<.02?.1:.55);}
+    n.mats.forEach(m=>m.opacity=o);n.glow.material.opacity=.35*o;});}
+
+/* ---------- the bubble ghost ---------- */
+const bubbleVS=`varying vec3 vN;varying vec3 vV;void main(){vec4 mv=modelViewMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=normalize(-mv.xyz);gl_Position=projectionMatrix*mv;}`;
+const bubbleFS=`uniform vec3 uColor;uniform float uTime;varying vec3 vN;varying vec3 vV;
+void main(){float f=1.0-abs(dot(normalize(vN),normalize(vV)));f=pow(f,2.4);
+vec3 irid=0.5+0.5*cos(6.2831*(f*0.9+uTime*0.04+vec3(0.0,0.33,0.67)));
+vec3 c=mix(uColor,irid,0.4);gl_FragColor=vec4(c*(f*0.7),1.0);}`;
+const ghostProfile=[[.34,.22],[.32,.34],[.3,.5],[.29,.7],[.295,.9],[.305,1.05],[.3,1.18],[.27,1.3],[.21,1.4],[.13,1.47],[.05,1.5],[0,1.505]].map(p=>new THREE.Vector2(p[0],p[1]));
+const ghostGeo=new THREE.LatheGeometry(ghostProfile,28);
+const bubbleGeo=new THREE.SphereGeometry(1.05,40,28);
+const bubbleMats=[];
+/* the ghost: a see-through person whose outline glows and whose feet fade away, like the NPCs in Still Here */
+const ghostVS=`uniform float uBase;uniform float uTime;varying vec3 vN;varying vec3 vV;varying float vY;void main(){vec4 wp=modelMatrix*vec4(position,1.0);
+float h=wp.y-uBase;if(h<.62){float k=1.0-h/.62;float ang=atan(position.z,position.x);wp.y+=sin(ang*6.0+uTime*3.2)*.045*k;wp.xz+=(wp.xz-modelMatrix[3].xz)*sin(ang*3.0-uTime*2.0)*.06*k;}
+vec4 mv=viewMatrix*wp;
+vN=normalize(normalMatrix*normal);vV=normalize(-mv.xyz);vY=wp.y-uBase;gl_Position=projectionMatrix*mv;}`;
+const ghostFS=`uniform vec3 uColor;uniform float uTime;varying vec3 vN;varying vec3 vV;varying float vY;
+void main(){float fr=pow(1.0-abs(dot(normalize(vN),normalize(vV))),1.7);
+float feet=smoothstep(0.12,0.75,vY);float lines=0.94+0.06*sin(vY*40.0-uTime*2.0);
+float a=min(1.0,(0.5+fr*0.9)*feet*lines);vec3 c=mix(uColor,vec3(1.0),fr*0.6);gl_FragColor=vec4(c,a);}`;
+const limb=(r1,r2,h)=>new THREE.CylinderGeometry(r1,r2,h,14,1);
+/* small, round proportions: a big head, a short body and stubby limbs */
+/* a sheet ghost: one soft body that drifts into a wavy hem, with two little nubs for hands */
+const GHOST_PARTS=[[new THREE.LatheGeometry(ghostProfile,40),0,0,0,0],[new THREE.SphereGeometry(.085,16,12),-.32,.86,.02,.6],[new THREE.SphereGeometry(.085,16,12),.32,.86,.02,-.6]];
+const EYE=new THREE.SphereGeometry(.055,14,12),EYE_MAT=new THREE.MeshBasicMaterial({color:0x10222e});
+const CHEEK=new THREE.CircleGeometry(.05,16),CHEEK_MAT=new THREE.MeshBasicMaterial({color:0xff8fa8,transparent:true,opacity:.8,depthWrite:false});
+function makeGhost(tint,label){
+  const root=new THREE.Group();const floatG=new THREE.Group();root.add(floatG);
+  const gm=new THREE.ShaderMaterial({uniforms:{uColor:{value:new THREE.Color(tint)},uTime:{value:0},uBase:{value:0}},vertexShader:ghostVS,fragmentShader:ghostFS,transparent:true,depthWrite:false,side:THREE.DoubleSide});
+  bubbleMats.push(gm);
+  const body=new THREE.Group();GHOST_PARTS.forEach(([geo,x,y,z,rz])=>{const m=new THREE.Mesh(geo,gm);m.position.set(x,y,z);m.rotation.z=rz;if(x)m.scale.set(1.25,.75,.9);body.add(m);});
+  for(const sx of[-1,1]){const e=new THREE.Mesh(EYE,EYE_MAT);e.position.set(sx*.105,1.1,.292);e.scale.set(.95,1.45,.4);e.renderOrder=3;body.add(e); /* sits on the face, not inside the head */
+    const c=new THREE.Mesh(CHEEK,CHEEK_MAT);c.position.set(sx*.19,.99,.255);c.rotation.y=sx*.6;c.renderOrder=3;body.add(c);}
+  body.scale.setScalar(.95);floatG.add(body);
+  const core=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:tint,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.3}));
+  core.scale.set(2.6,2.6,1);core.position.y=.75;floatG.add(core);
+  const bm=new THREE.ShaderMaterial({uniforms:{uColor:{value:new THREE.Color(tint)},uTime:{value:0}},vertexShader:bubbleVS,fragmentShader:bubbleFS,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});bubbleMats.push(bm);
+  const bubble=new THREE.Mesh(bubbleGeo,bm);bubble.position.y=.72;floatG.add(bubble);
+  const sh=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.MeshBasicMaterial({map:SHADOW,transparent:true,depthWrite:false}));sh.rotation.x=-Math.PI/2;sh.position.y=.02;root.add(sh);
+  if(label){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTex(label),transparent:true,depthWrite:false}));s.scale.set(2,.5,1);s.position.y=2.3;root.add(s);}
+  scene.add(root);return {root,floatG,bubble,gm,phase:rnd(0,6),target:null,face:0,speed:2.6,wait:0};}
+function setGhostLabel(g,text){if(g.label){g.root.remove(g.label);g.label.material.map.dispose();}
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:labelTex(text),transparent:true,depthWrite:false}));s.scale.set(2,.5,1);s.position.y=2.3;g.root.add(s);g.label=s;}
+const me=makeGhost(0xf4e7c4,null);me.root.position.set(0,0,14);
+const myLight=new THREE.PointLight(0xf4e7c4,1.1,7,2);myLight.position.y=1;me.root.add(myLight);
+const others=[makeGhost(0x8fe9ff,'예시 방문자'),makeGhost(0x9dfff0,'예시 방문자'),makeGhost(0x7fd8ff,'예시 방문자')];
+others[0].root.position.set(-1,0,4);others[1].root.position.set(1.2,0,-6);others[2].root.position.set(10,0,-10);
+others.forEach(o=>{o.speed=rnd(1.1,1.6);o.wait=rnd(0,2);});
+function randomSpot(){const big=AREAS.reduce((a,b)=>(b[1]-b[0])*(b[3]-b[2])>(a[1]-a[0])*(a[3]-a[2])?b:a);
+  for(;;){const a=Math.random()<.75?big:AREAS[(Math.random()*AREAS.length)|0];const x=rnd(a[0]+.4,a[1]-.4),z=rnd(a[2]+.5,a[3]-.5);if(inside(x,z))return new THREE.Vector3(x,floorAt(x,z),z);}}
+function step(g,dt){const p=g.root.position;const fy=floorAt(p.x,p.z);p.y+=(fy-p.y)*Math.min(1,dt*10);
+  if(!g.target)return false;const dx=g.target.x-p.x,dz=g.target.z-p.z,d=Math.hypot(dx,dz);
+  if(d<.05){g.target=null;return false;}const s=Math.min(g.speed*dt,d),nx=p.x+dx/d*s,nz=p.z+dz/d*s;
+  if(inside(nx,nz)){p.x=nx;p.z=nz;}else if(inside(nx,p.z)){p.x=nx;}else if(inside(p.x,nz)){p.z=nz;}else{g.target=null;return false;}
+  g.face=Math.atan2(dx,dz);return true;}
+
+/* ---------- memory capsules (example memories, marked as such on every card) ---------- */
+const MEMORIES=[
+  /* 2026: real records from the documentary footage of Bogwang-dong */
+  {year:2026,pos:[2.0,1.3,22],src:'assets/bogwang/c0022.jpg',title:'보승약국',when:'2026 · 보광동',sound:'wind',hue:0xe8c78a,
+   text:'문을 닫은 보승약국. 유리문에는 출입금지 안내문이 붙었고, 옆 셔터에는 붉은 X 표시가 남았다.'},
+  {year:2026,pos:[-1.9,1.6,6],src:'assets/bogwang/c0021.jpg',title:'보광우사단경로당',when:'2026 · 보광동',sound:'hum',hue:0xf0d49a,
+   text:'나무 현판만 남은 경로당. 유리문에 한남2재정비촉진구역 출입금지 안내문이 붙어 있다.'},
+  {year:2026,pos:[1.9,.9,-20],src:'assets/bogwang/c0028.jpg',title:'빈집 문턱의 고양이',when:'2026 · 보광동',sound:'bell',hue:0xc9d8ef,
+   text:'사람이 떠난 집 문턱에 고양이가 앉아 있다. 전봇대에는 보광동 재개발 고양이를 지켜 달라는 스티커가 붙어 있었다.'},
+  {year:2026,pos:[-1.9,1.5,-4],src:'assets/bogwang/c0003.jpg',title:'보광초등학교 휴교 알림',when:'2026 · 보광동',sound:'kids',hue:0xd8e8d2,
+   text:'2025년 3월 1일부터 쉬고 2028년 3월에 다시 문을 열 예정이라는 알림이 학교 담장에 붙어 있다.'},
+  {year:2026,pos:[1.9,1.5,30],src:'assets/bogwang/c0041.jpg',title:'이태원식당의 작별 인사',when:'2026 · 보광동',sound:'radio',hue:0xf2c48d,
+   text:'유리문에 붙은 작별 인사. 마침표가 될지 쉼표가 될지 모르겠다는 문장이 남아 있다.'},
+  {year:2026,pos:[-1.9,1.4,-27],src:'assets/bogwang/c0034.jpg',title:'태양이발',when:'2026 · 보광동',sound:'radio2',hue:0xe9b9b0,
+   text:'담쟁이로 덮인 이발소. 회전 표시등은 그대로인데 문마다 공가 표시가 칠해져 있다.'},
+{year:2016,pos:[-1.9,1.4,16],kind:'shop',title:'슈퍼 앞 평상',when:'2016 · 여름',date:[16,7,23],sound:'radio',hue:0xf2c48d,
+   text:'여름밤이면 슈퍼 앞 평상에 아저씨들이 모여 야구 중계를 틀었다. 홈런이 나오면 골목 전체가 같이 소리를 질렀다.'},
+  {year:2016,pos:[1.9,1.4,0],kind:'steam',title:'세탁소 앞 김',when:'2016 · 겨울',date:[16,12,5],sound:'hiss',hue:0xd6e4ea,
+   text:'세탁소 앞을 지나면 늘 따뜻한 김이 나왔다. 겨울엔 일부러 그 앞으로 돌아서 학교에 갔다.'},
+  {year:2016,pos:[12,1.2,-10.2],kind:'rain',title:'비 오는 샛길',when:'2016 · 장마',date:[16,7,4],sound:'rain',hue:0xb8cbe0,
+   text:'우산 없이 샛길 처마 밑에서 비가 그치길 기다렸다. 옆집 할머니가 말없이 우산을 하나 두고 갔다.'},
+  {year:2006,pos:[-1.9,.8,-8],kind:'stove',title:'연탄 가는 아침',when:'2006 · 겨울',date:[6,1,15],sound:'crackle',hue:0xf0a77a,
+   text:'아침마다 아빠가 연탄을 갈았다. 다 탄 연탄은 골목 눈길에 부숴 뿌렸다. 그 길로 미끄러지지 않고 학교에 갔다.'},
+  {year:2006,pos:[1.9,1.5,12],kind:'barber',title:'이발소 라디오',when:'2006 · 봄',date:[6,4,8],sound:'radio2',hue:0xe9b9b0,
+   text:'이발소 아저씨는 머리를 자르면서 늘 라디오 노래를 흥얼거렸다. 거울 속 내 머리는 항상 생각보다 짧았다.'},
+  {year:2006,pos:[0,1.0,-30],kind:'kids',title:'골목 술래잡기',when:'2006 · 여름',date:[6,8,14],sound:'kids',hue:0xf3e19a,
+   text:'해가 질 때까지 골목에서 술래잡기를 했다. 저녁 먹으라는 소리가 들리면 하나둘 집으로 사라졌다.'},
+  {year:1996,pos:[-.8,1.4,8],kind:'lowpole',title:'처음 이사 온 날',when:'1996 · 봄',date:[96,3,2],sound:'wind',hue:0xe6d6b4,
+   text:'이 골목에 처음 이사 온 날, 전봇대가 지금보다 훨씬 낮아 보였다. 아니면 내가 더 작았던 걸까.'},
+  {year:1996,pos:[1.2,1.2,-14],kind:'bike',title:'첫 자전거',when:'1996 · 여름',date:[96,6,30],sound:'bell',hue:0xcfe2c9,
+   text:'골목 끝에서 끝까지 넘어지지 않고 달린 날, 동네 사람들이 박수를 쳐 줬다.'}
+];
+
+/* an example photo drawn in code: night or dusk alley, the memory's object, film grain and a date stamp */
+function drawPhoto(m){
+  const W=480,H=340,[c,g]=cv(W,H);
+  const day=['shop','kids','bike','lowpole','barber'].includes(m.kind);
+  const sky=g.createLinearGradient(0,0,0,H*.7);
+  if(day){sky.addColorStop(0,'#8e9aa6');sky.addColorStop(1,'#d8cfbd');}else{sky.addColorStop(0,'#1d2027');sky.addColorStop(1,'#3f434c');}
+  g.fillStyle=sky;g.fillRect(0,0,W,H);
+  const low=m.year<=2006;
+  for(let i=0;i<5;i++){const x=i*100-20+rnd(-10,10),w=rnd(80,110),h=low?rnd(90,130):rnd(130,210),y=H*.72-h;
+    g.fillStyle=day?`rgb(${150-i*8},${142-i*8},${130-i*8})`:`rgb(${54+i*4},${55+i*4},${58+i*4})`;g.fillRect(x,y,w,h);
+    if(low){g.fillStyle=day?'#5d6670':'#2a2e35';g.beginPath();g.moveTo(x-8,y);g.lineTo(x+w/2,y-28);g.lineTo(x+w+8,y);g.fill();}
+    for(let wy=y+14;wy<H*.72-30;wy+=34)for(let wx=x+12;wx<x+w-20;wx+=30){g.fillStyle=(!day&&Math.random()<.25)?'#d9b97c':(day?'rgba(40,44,52,.55)':'#1a1c20');g.fillRect(wx,wy,16,18);}}
+  g.fillStyle=day?'#77736b':'#2c2d30';g.fillRect(0,H*.72,W,H*.28);
+  g.strokeStyle='rgba(0,0,0,.6)';g.lineWidth=2;
+  const k=m.kind;
+  if(k==='pole'||k==='lowpole'){const top=k==='pole'?20:110;g.fillStyle='#4a4846';g.fillRect(228,top,16,H*.72-top+10);
+    for(let i=0;i<3;i++){g.beginPath();g.moveTo(0,top+20+i*10);g.quadraticCurveTo(240,top+40+i*10,W,top+18+i*10);g.stroke();}
+    if(k==='pole'){g.fillStyle='#e9e4d6';g.fillRect(212,150,48,62);g.fillStyle='#777';for(let i=0;i<6;i++)g.fillRect(218,160+i*8,36-(i%2)*10,3);}}
+  if(k==='window'){g.fillStyle='#24262b';g.fillRect(60,30,360,H*.72-30);for(let y=60;y<H*.72-30;y+=56)for(let x=90;x<400;x+=70){g.fillStyle='#16171a';g.fillRect(x,y,34,38);}
+    g.fillStyle='#e7c27c';g.fillRect(230,116,34,38);const r=g.createRadialGradient(247,135,0,247,135,90);r.addColorStop(0,'rgba(240,200,120,.45)');r.addColorStop(1,'rgba(240,200,120,0)');g.fillStyle=r;g.fillRect(140,40,220,200);}
+  if(k==='cat'){g.fillStyle='#8f9090';g.fillRect(0,110,W,H*.72-110);g.fillStyle='rgba(0,0,0,.2)';for(let x=0;x<W;x+=48)g.fillRect(x,110,3,H*.72-110);
+    g.fillStyle='#b9b4a8';g.beginPath();g.ellipse(200,H*.76,30,9,0,0,7);g.fill();
+    g.fillStyle='#1c1c1e';g.beginPath();g.ellipse(290,H*.72,42,24,0,0,7);g.fill();g.beginPath();g.arc(330,H*.66,17,0,7);g.fill();
+    g.beginPath();g.moveTo(320,H*.62);g.lineTo(324,H*.57);g.lineTo(330,H*.62);g.moveTo(334,H*.62);g.lineTo(340,H*.57);g.lineTo(344,H*.63);g.fill();}
+  if(k==='shop'||k==='steam'||k==='barber'){g.fillStyle='#3d3a36';g.fillRect(70,120,340,H*.72-120);g.fillStyle=k==='steam'?'#dfe6e8':'#eeeeea';g.fillRect(80,90,320,48);
+    g.fillStyle='#3a2a26';g.font='600 32px "Apple SD Gothic Neo",sans-serif';g.textAlign='center';g.fillText(k==='shop'?'동네슈퍼':k==='steam'?'세탁소':'이발소',240,126);
+    g.fillStyle=day?'#d8c9a8':'#9a8f78';g.fillRect(100,160,280,90);
+    if(k==='shop'){g.fillStyle='#6b5034';g.fillRect(150,H*.68,190,14);g.fillRect(160,H*.68,8,30);g.fillRect(322,H*.68,8,30);}
+    if(k==='steam'){g.fillStyle='rgba(240,240,240,.5)';for(let i=0;i<9;i++){g.beginPath();g.arc(rnd(120,360),rnd(150,230),rnd(22,40),0,7);g.fill();}}
+    if(k==='barber'){for(let y=150;y<H*.72;y+=16){g.fillStyle=(y/16)%2<1?'#b84a3e':'#efeae0';g.fillRect(420,y,20,10);g.fillStyle='#2f5b8a';g.fillRect(420,y+10,20,6);}}}
+  if(k==='rain'){g.strokeStyle='rgba(220,230,240,.35)';g.lineWidth=1.4;for(let i=0;i<260;i++){const x=rnd(0,W),y=rnd(0,H);g.beginPath();g.moveTo(x,y);g.lineTo(x-6,y+16);g.stroke();}
+    g.fillStyle='rgba(200,215,230,.18)';for(let i=0;i<6;i++){g.beginPath();g.ellipse(rnd(40,440),rnd(H*.78,H*.95),rnd(30,70),rnd(5,10),0,0,7);g.fill();}}
+  if(k==='stove'){g.fillStyle='#2b2b2d';for(let r=0;r<3;r++)for(let i=0;i<4;i++){const x=150+i*48+(r%2)*24,y=H*.72-40-r*44;g.beginPath();g.ellipse(x,y,22,10,0,0,7);g.fill();g.fillRect(x-22,y,44,34);
+      g.fillStyle='#454547';g.beginPath();g.ellipse(x,y,22,10,0,0,7);g.fill();g.fillStyle='#1b1b1c';for(let h=0;h<5;h++){g.beginPath();g.arc(x-10+h*5,y,1.8,0,7);g.fill();}g.fillStyle='#2b2b2d';}
+    g.fillStyle='rgba(240,140,80,.25)';g.fillRect(0,0,W,H);}
+  if(k==='kids'){g.fillStyle='#2a2826';[[120,1],[200,.85],[290,1.1],[360,.9]].forEach(([x,s])=>{g.beginPath();g.arc(x,H*.72-62*s,11*s,0,7);g.fill();g.fillRect(x-9*s,H*.72-50*s,18*s,34*s);g.fillRect(x-9*s,H*.72-16*s,6*s,16*s);g.fillRect(x+3*s,H*.72-16*s,6*s,16*s);});}
+  if(k==='bike'){g.strokeStyle='#2a2826';g.lineWidth=5;g.beginPath();g.arc(180,H*.8,34,0,7);g.stroke();g.beginPath();g.arc(300,H*.8,34,0,7);g.stroke();
+    g.beginPath();g.moveTo(180,H*.8);g.lineTo(230,H*.66);g.lineTo(300,H*.8);g.moveTo(230,H*.66);g.lineTo(285,H*.66);g.lineTo(300,H*.8);g.moveTo(285,H*.66);g.lineTo(280,H*.6);g.lineTo(296,H*.6);g.stroke();}
+  /* age the print: sepia by year, grain, vignette, date stamp */
+  const age=m.year<=1996?.5:m.year<=2006?.38:m.year<=2016?.2:.08;
+  g.globalCompositeOperation='color';g.fillStyle=`rgba(150,112,70,${age})`;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over';
+  for(let i=0;i<9000;i++){const v=Math.random()*255|0;g.fillStyle=`rgba(${v},${v},${v},.05)`;g.fillRect(Math.random()*W,Math.random()*H,1.2,1.2);}
+  const vg=g.createRadialGradient(W/2,H/2,H*.3,W/2,H/2,W*.65);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.55)');g.fillStyle=vg;g.fillRect(0,0,W,H);
+  const [yy,mm,dd]=m.date;g.font='600 20px "IBM Plex Mono",monospace';g.textAlign='right';g.fillStyle='rgba(255,150,60,.92)';
+  g.fillText(`'${String(yy).padStart(2,'0')}  ${mm}  ${dd}`,W-18,H-16);
+  return c.toDataURL('image/jpeg',.86);
+}
+
+function capLabel(title){const [c,g]=cv(512,128);g.textAlign='center';g.textBaseline='middle';
+  g.fillStyle='rgba(20,22,26,.62)';g.beginPath();g.roundRect?g.roundRect(26,8,460,112,26):g.rect(26,8,460,112);g.fill();
+  g.font='500 40px "IBM Plex Sans KR", sans-serif';g.fillStyle='rgba(244,231,196,.98)';g.fillText(title,256,46);
+  g.font='400 26px "IBM Plex Sans KR", sans-serif';g.fillStyle='rgba(230,227,220,.6)';g.fillText('누르면 열려요',256,94);return new THREE.CanvasTexture(c);}
+
+const capGeo=new THREE.OctahedronGeometry(.2,0);
+const hitGeo=new THREE.SphereGeometry(.75,10,8);
+const caps=[];
+const capLayer=new THREE.Group();scene.add(capLayer);
+function makeCapsule(m){
+  const G=capLayer,root=new THREE.Group();root.position.set(...m.pos);G.add(root);
+  const crystal=new THREE.Mesh(capGeo,new THREE.MeshBasicMaterial({color:m.hue,transparent:true,opacity:.95}));crystal.scale.set(1,1.9,1);root.add(crystal);
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:m.hue,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.8}));glow.scale.set(1.6,1.6,1);root.add(glow);
+  const hit=new THREE.Mesh(hitGeo,new THREE.MeshBasicMaterial({visible:false}));root.add(hit);
+  const label=new THREE.Sprite(new THREE.SpriteMaterial({map:capLabel(m.title),transparent:true,depthWrite:false,opacity:0}));label.scale.set(2.4,.6,1);label.position.y=.85;root.add(label);
+  /* the colour a memory gives back to the grey alley around it */
+  const tint=new THREE.Mesh(new THREE.PlaneGeometry(7,7),new THREE.MeshBasicMaterial({map:GLOW,color:m.hue,transparent:true,opacity:.14,blending:THREE.AdditiveBlending,depthWrite:false}));
+  tint.rotation.x=-Math.PI/2;tint.position.set(m.pos[0],.04,m.pos[2]);G.add(tint);
+  const cap={m,root,crystal,glow,hit,label,tint,opened:false,phase:rnd(0,6),photo:null,gain:null};hit.userData.cap=cap;caps.push(cap);
+  return cap;}
+function removeCapsule(cap){const G=capLayer;G.remove(cap.root);G.remove(cap.tint);
+  if(cap.src){try{cap.src.stop();}catch(e){}}if(cap.gain)cap.gain.disconnect();
+  const i=caps.indexOf(cap);if(i>=0)caps.splice(i,1);if(openCap===cap)closeCard();}
+/* ---------- the memory's own photo, floating above its capsule as a glowing print ---------- */
+const PRINT_W=1.2,PRINT_H=PRINT_W*454/512;let frameTex=null;
+function softFrameTex(){if(frameTex)return frameTex;const [c,g]=cv(256,256);g.shadowColor='#fff';g.shadowBlur=40;g.fillStyle='#fff';g.fillRect(52,58,152,140);frameTex=new THREE.CanvasTexture(c);return frameTex;}
+function printTex(img,caption){const W=512,H=454,[c,g]=cv(W,H);g.fillStyle='#f3eee2';g.fillRect(0,0,W,H);
+  const pw=472,ph=354,iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height,ia=iw/ih,ta=pw/ph;let sw=iw,sh=ih,sx=0,sy=0;
+  if(ia>ta){sw=ih*ta;sx=(iw-sw)/2;}else{sh=iw/ta;sy=(ih-sh)/2;}
+  g.drawImage(img,sx,sy,sw,sh,20,20,pw,ph);
+  g.fillStyle='#4a453c';g.font='500 26px "IBM Plex Sans KR",sans-serif';g.textBaseline='middle';
+  let t=caption;while(g.measureText(t).width>pw&&t.length>1)t=t.slice(0,-1);if(t!==caption)t=t.slice(0,-1)+'…';g.fillText(t,22,H-40);
+  const tx=new THREE.CanvasTexture(c);tx.encoding=THREE.sRGBEncoding;tx.anisotropy=4;return tx;}
+function addPrints(cap,srcs,caption){
+  const group=new THREE.Group();group.position.y=1.05;cap.root.add(group);cap.print=group;cap.label.position.y=2.05;
+  const halo=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W*1.9,PRINT_H*1.9),new THREE.MeshBasicMaterial({map:softFrameTex(),color:cap.m.hue,transparent:true,opacity:.42,blending:THREE.AdditiveBlending,depthWrite:false}));
+  halo.position.z=-.06;group.add(halo);
+  const list=srcs.slice(0,5);
+  list.forEach((src,i)=>{const img=new Image();img.decoding='async';
+    img.onload=()=>{if(!caps.includes(cap))return;const o=i===0?0:(i%2?1:-1)*Math.ceil(i/2);
+      const p=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W,PRINT_H),new THREE.MeshBasicMaterial({map:printTex(img,caption),color:0xe2ddd2}));
+      p.position.set(o*.34,-Math.abs(o)*.05,-i*.02);p.rotation.z=-o*.09;group.add(p);};
+    img.src=src;});}
+MEMORIES.forEach(m=>{m.sp='bogwang';const c=makeCapsule(m);c.photo=m.src||drawPhoto(m);addPrints(c,[c.photo],(m.src?'기록 · ':'예시 · ')+m.title);});
+const capsOf=y=>caps.filter(c=>c.m.year===y&&(c.m.sp||'bogwang')===space);
+
+/* ---------- memory sounds, made in code ---------- */
+const SR=22050;let ac=null,master=null,soundOn=false;const bufCache={};
+function makeBuffer(kind){
+  if(bufCache[kind])return bufCache[kind];
+  const len={wind:6,rain:4,crackle:4,hiss:4.8,hum:2,radio:3.2,radio2:3.6,kids:4,bell:3.5}[kind]*SR|0;
+  const d=new Float32Array(len);const nz=()=>Math.random()*2-1;const tau=Math.PI*2;
+  if(kind==='wind'){let y=0;for(let i=0;i<len;i++){const t=i/SR,a=.02+.03*(1+Math.sin(t*tau/6));y+=a*(nz()-y);d[i]=y*(1.4+Math.sin(t*tau/3)*.6)*3;}}
+  if(kind==='rain'){let y=0;for(let i=0;i<len;i++){y+=.3*(nz()-y);d[i]=(nz()-y)*.25;}
+    for(let k=0;k<120;k++){const s=(Math.random()*len)|0,f=rnd(1800,3600);for(let j=0;j<300&&s+j<len;j++)d[s+j]+=Math.sin(tau*f*j/SR)*Math.exp(-j/50)*.25;}}
+  if(kind==='crackle'){let y=0;for(let i=0;i<len;i++){y+=.01*(nz()-y);d[i]=y*.8;if(Math.random()<.0018){for(let j=0;j<40&&i+j<len;j++)d[i+j]+=nz()*Math.exp(-j/8)*.7;}}}
+  if(kind==='hiss'){let y=0;for(let i=0;i<len;i++){const t=(i/SR)%1.6,env=t<.08?t/.08:Math.exp(-(t-.08)*2.6);y+=.5*(nz()-y);d[i]=(nz()-y)*env*.5;}}
+  if(kind==='hum'){for(let i=0;i<len;i++){const t=i/SR;d[i]=Math.sin(tau*60*t)*.3+Math.sin(tau*120*t)*.18+Math.sin(tau*180*t)*.06+nz()*.01;}}
+  if(kind==='radio'||kind==='radio2'||kind==='kids'){
+    const notes=kind==='radio'?[392,440,494,587,494,440,392,330]:kind==='radio2'?[330,392,440,392,349,330,294,330,440,392,330,294]:[659,587,659,784,659,587,523,0,659,784,880,784,659,0];
+    const dur=kind==='radio'?.4:kind==='radio2'?.3:.28;
+    notes.forEach((f,n)=>{if(!f)return;const s=(n*dur*SR)|0;for(let j=0;j<dur*SR&&s+j<len;j++){const t=j/SR,v=kind==='radio2'?1+.006*Math.sin(tau*5.5*t):1,env=Math.min(1,t/.02)*Math.exp(-t*3);
+      d[s+j]+=(Math.sin(tau*f*v*t)+.35*Math.sin(tau*2*f*v*t))*env*.35;}});
+    if(kind!=='kids')for(let i=0;i<len;i++)d[i]+=nz()*.03;}
+  if(kind==='bell'){[0,.2].forEach(o=>{const s=(o*SR)|0;for(let j=0;j<1.4*SR&&s+j<len;j++){const t=j/SR;d[s+j]+=(Math.sin(tau*2150*t)*.5+Math.sin(tau*2730*t)*.3+Math.sin(tau*4300*t)*.1)*Math.exp(-t*4)*.6;}});}
+  let peak=0;for(let i=0;i<len;i++)peak=Math.max(peak,Math.abs(d[i]));const k=peak?.6/peak:1;
+  const b=ac.createBuffer(1,len,SR);const ch=b.getChannelData(0);for(let i=0;i<len;i++)ch[i]=d[i]*k;
+  /* soften the loop seam */
+  const fade=Math.min(400,len>>3);for(let i=0;i<fade;i++){ch[i]*=i/fade;ch[len-1-i]*=i/fade;}
+  return bufCache[kind]=b;}
+function startAudio(){
+  if(ac){if(ac.state==='suspended')ac.resume();return;}
+  try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
+  master=ac.createGain();master.gain.value=0;master.connect(ac.destination);
+  caps.forEach(attachVoice);}
+/* each capsule loops its sound quietly; the volume follows how close you are */
+function playLoop(cap,buffer,filter){if(!ac||cap.gain)return;const src=ac.createBufferSource();src.buffer=buffer;src.loop=true;
+  const g=ac.createGain();g.gain.value=0;let node=src;
+  if(filter){const f=ac.createBiquadFilter();f.type='bandpass';f.frequency.value=1100;f.Q.value=.7;src.connect(f);node=f;}
+  node.connect(g);g.connect(master);src.start(0,Math.random()*buffer.duration);cap.gain=g;cap.src=src;}
+function attachVoice(cap){if(!ac||cap.gain||cap.loading)return;
+  if(cap.m.soundAsset){cap.loading=true;
+    fetch('/_blob/'+cap.m.soundAsset).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();})
+      .then(t=>ac.decodeAudioData(b64ToBytes(t).buffer)).then(buf=>{if(caps.includes(cap))playLoop(cap,buf,false);})
+      .catch(e=>console.warn('memory sound',e)).finally(()=>{cap.loading=false;});return;}
+  if(cap.m.sound)playLoop(cap,makeBuffer(cap.m.sound),cap.m.sound.startsWith('radio'));}
+function b64ToBytes(t){const bin=atob(t.trim()),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u;}
+const soundBtn=document.getElementById('sound');
+function setSound(on){soundOn=on;if(on)startAudio();if(master)master.gain.setTargetAtTime(on?1:0,ac.currentTime,.3);
+  soundBtn.setAttribute('aria-pressed',String(on));document.getElementById('soundLabel').textContent=on?'소리 켜짐':'소리 꺼짐';
+  document.getElementById('soundWave').style.opacity=on?1:.2;}
+soundBtn.addEventListener('click',()=>setSound(!soundOn));
+let soundAsked=false;
+function firstGesture(){if(!soundAsked){soundAsked=true;setSound(true);}}
+
+/* ---------- memory card ---------- */
+const card=document.getElementById('card');let openCap=null,pendingCap=null;
+const $=id=>document.getElementById(id);
+function showPhoto(url,alt){$('cardImg').src=url;$('cardImg').alt=alt;}
+function openCard(cap){
+  openCap=cap;cap.opened=true;const m=cap.m;
+  const photos=m.photos||[];
+  $('cardThumbs').replaceChildren();$('cardThumbs').hidden=photos.length<2;
+  if(m.user){
+    $('cardFig').hidden=!photos.length;$('cardCap').hidden=true;
+    if(photos.length)showPhoto('/_blob/'+photos[0],'사진: '+m.title);
+    photos.forEach((id,i)=>{const b=document.createElement('button');b.type='button';b.style.backgroundImage=`url("/_blob/${id}")`;
+      b.setAttribute('aria-label',`사진 ${i+1}`);b.setAttribute('aria-pressed',String(i===0));
+      b.onclick=()=>{showPhoto('/_blob/'+id,'사진: '+m.title);[...$('cardThumbs').children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));};$('cardThumbs').appendChild(b);});
+    $('cardTag').textContent=m.owner===myUid?'내 기억':'남겨진 기억';
+  }else{
+    if(!cap.photo)cap.photo=drawPhoto(m);
+    $('cardFig').hidden=false;$('cardCap').hidden=false;$('cardCap').textContent=m.src?'다큐 기록 · 보광동':'예시 사진';
+    showPhoto(cap.photo,(m.src?'다큐 기록 사진: ':'예시 사진: ')+m.title);$('cardTag').textContent=m.src?'다큐 기록':'예시 기억';}
+  $('cardWhen').textContent=m.when;$('cardTitle').textContent=m.title;$('cardText').textContent=m.text;
+  $('cardWho').textContent=m.src?'기록':(m.anon||!m.owner?'익명':'…');
+  if(m.user&&!m.anon&&m.owner)whoIs(m.owner).then(n=>{if(openCap===cap)$('cardWho').textContent=n;});
+  const mine=m.user&&m.owner===myUid;$('cardDelete').hidden=!mine;$('cardDelete').textContent='지우기';delete $('cardDelete').dataset.armed;
+  $('cardReplay').hidden=!(m.sound||m.soundAsset);
+  card.hidden=false;document.body.classList.add('card-open');$('cardClose').focus({preventScroll:true});
+  replay(cap);}
+function closeCard(){openCap=null;card.hidden=true;document.body.classList.remove('card-open');}
+function replay(cap){if(!soundOn||!ac||!cap.gain)return;cap.boost=performance.now();}
+document.getElementById('cardClose').addEventListener('click',closeCard);
+document.getElementById('cardReplay').addEventListener('click',()=>{if(!soundOn)setSound(true);if(openCap)replay(openCap);});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&openCap)closeCard();});
+function tryCapsule(x,y){
+  ndc.set(x/innerWidth*2-1,-(y/innerHeight)*2+1);ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObjects(capsOf(year).map(c=>c.hit))[0];if(!hit)return false;
+  const cap=hit.object.userData.cap,cp=cap.root.position,p=me.root.position;
+  if(Math.hypot(cp.x-p.x,cp.z-p.z)<2.4){openCard(cap);return true;}
+  const [cx,cz]=clampToArea(cp.x+(p.x-cp.x)*.15,cp.z+Math.sign(p.z-cp.z)*1.2);me.target=new THREE.Vector3(cx,floorAt(cx,cz),cz);pendingCap=cap;
+  marker.position.x=cx;marker.position.z=cz;markerT=performance.now();return true;}
+function updateCaps(dt,now){
+  const p=me.root.position;let nearest=null,nd=1e9;
+  caps.forEach(cap=>{
+    const active=cap.m.year===year&&(cap.m.sp||'bogwang')===space&&!trans;cap.root.visible=cap.tint.visible=active;const cp=cap.root.position;const d=Math.hypot(cp.x-p.x,cp.y-1-p.y,cp.z-p.z);
+    if(!reduce){cap.crystal.rotation.y+=dt*.8;cap.crystal.position.y=Math.sin(t*1.4+cap.phase)*.08;}
+    const close=Math.max(0,1-d/7);
+    if(cap.print){const wp=cap.root.position;cap.print.rotation.y=Math.atan2(camera.position.x-wp.x,camera.position.z-wp.z);
+      cap.print.scale.setScalar(1+Math.max(0,1-d/6)*.5);cap.print.position.y=1.05+(reduce?0:Math.sin(t*1.1+cap.phase)*.06);}
+    cap.glow.material.opacity=.55+close*.4+(reduce?0:Math.sin(t*2+cap.phase)*.08);
+    cap.tint.material.opacity=(cap.opened?.32:.14)+close*.1;
+    if(active&&d<nd){nd=d;nearest=cap;}
+    if(cap.gain&&ac){let g=active?close*close*.6:0;
+      if(openCap){g=cap===openCap?.9:g*.12;}
+      if(cap.boost&&now-cap.boost<2500&&cap===openCap)g=1;
+      cap.gain.gain.setTargetAtTime(g,ac.currentTime,.12);}});
+  caps.forEach(cap=>{const show=cap===nearest&&nd<4.2&&!openCap;const o=cap.label.material;o.opacity+=((show?1:0)-o.opacity)*Math.min(1,dt*6);});
+  if(pendingCap){const cp=pendingCap.root.position;if(Math.hypot(cp.x-p.x,cp.z-p.z)<2.4){openCard(pendingCap);pendingCap=null;}else if(!me.target)pendingCap=null;}
+  if(openCap){const cp=openCap.root.position;if(Math.hypot(cp.x-p.x,cp.z-p.z)>6||openCap.m.year!==year)closeCard();}}
+
+/* ---------- year change: the alley breaks into light and gathers again ---------- */
+const N=3600;
+const pFrom=new Float32Array(N*3),pTo=new Float32Array(N*3),pCtl=new Float32Array(N*3),pDelay=new Float32Array(N),pPos=new Float32Array(N*3);
+const pGeo=new THREE.BufferGeometry();pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+const pMat=new THREE.PointsMaterial({map:GLOW,color:0xf4e7c4,size:.22,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending});
+const dust=new THREE.Points(pGeo,pMat);dust.frustumCulled=false;dust.visible=false;scene.add(dust);
+function sampleInto(list,out){
+  const areas=list.map(b=>b.w*b.d+2*b.h*(b.w+b.d));const total=areas.reduce((a,b)=>a+b,0);
+  for(let i=0;i<N;i++){let r=Math.random()*total,k=0;while(r>areas[k]&&k<areas.length-1){r-=areas[k];k++;}const b=list[k];
+    const f=Math.random()*(b.w*b.d+2*b.h*(b.w+b.d));let x,y,z;
+    if(f<b.w*b.d){x=rnd(-.5,.5)*b.w;z=rnd(-.5,.5)*b.d;y=b.h;}
+    else if(f<b.w*b.d+2*b.h*b.w){x=rnd(-.5,.5)*b.w;z=(Math.random()<.5?-.5:.5)*b.d;y=rnd(0,b.h);}
+    else{z=rnd(-.5,.5)*b.d;x=(Math.random()<.5?-.5:.5)*b.w;y=rnd(0,b.h);}
+    out[i*3]=b.cx+x;out[i*3+1]=y;out[i*3+2]=b.cz+z;}}
+const T=2.1;let trans=null;
+const yearBtns=[...document.querySelectorAll('.years button')];
+const fogFrom=new THREE.Color(),fogTo=new THREE.Color(),skyFrom=new THREE.Color(),skyTo=new THREE.Color(),gndFrom=new THREE.Color(),gndTo=new THREE.Color();
+function applyMood(a,b,k){const A=YEARS[a],B=YEARS[b];
+  fogFrom.set(A.fog);fogTo.set(B.fog);scene.background.copy(fogFrom).lerp(fogTo,k);
+  if(composer)scene.background.convertSRGBToLinear();scene.fog.color.copy(scene.background);
+  skyFrom.set(A.sky);skyTo.set(B.sky);hemi.color.copy(skyFrom).lerp(skyTo,k);gndFrom.set(A.gnd);gndTo.set(B.gnd);hemi.groundColor.copy(gndFrom).lerp(gndTo,k);
+  hemi.intensity=A.hemi+(B.hemi-A.hemi)*k;scene.fog.density=(A.density+(B.density-A.density)*k)*SP[space].fogK;}
+function showYear(y){const al=space==='bogwang';ORDER.forEach(k=>groups[k].visible=al&&k===y);common.visible=al&&y!==1996;}
+function updateUI(y){yearBtns.forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.year===y)));
+  placeLabel();document.getElementById('placeNote').textContent=space==='theater'?SP.theater.note:YEARS[y].note;
+  document.getElementById('empty').hidden=(y!==1996||space!=='bogwang');
+  refreshMemCount();}
+function setYear(y){
+  if(y===year||trans)return;const from=year;year=y;myShard=pickShard(y);updateUI(y);hide();sendPresence(true);
+  if(reduce||space!=='bogwang'){showYear(y);applyMood(y,y,1);return;}
+  sampleInto(boxes[from],pFrom);sampleInto(boxes[y],pTo);
+  for(let i=0;i<N;i++){const j=i*3;
+    pCtl[j]=(pFrom[j]+pTo[j])/2+rnd(-3,3);pCtl[j+1]=Math.max(pFrom[j+1],pTo[j+1])+rnd(2,7);pCtl[j+2]=(pFrom[j+2]+pTo[j+2])/2+rnd(-3,3);
+    pDelay[i]=rnd(0,.35);pPos[j]=pFrom[j];pPos[j+1]=pFrom[j+1];pPos[j+2]=pFrom[j+2];}
+  pGeo.attributes.position.needsUpdate=true;dust.visible=true;
+  trans={from,to:y,start:performance.now(),swapped:false,hidOld:false};}
+yearBtns.forEach(b=>b.addEventListener('click',()=>setYear(+b.dataset.year)));
+function runTransition(now){
+  const e=(now-trans.start)/1000;
+  if(!trans.hidOld&&e>.18){ORDER.forEach(k=>groups[k].visible=false);common.visible=(trans.from!==1996&&trans.to!==1996)?true:false;trans.hidOld=true;}
+  if(!trans.swapped&&e>T-.3){showYear(trans.to);trans.swapped=true;}
+  const ease=x=>x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+  for(let i=0;i<N;i++){const u=ease(Math.min(1,Math.max(0,(e-pDelay[i])/(T-.45)))),a=(1-u)*(1-u),b=2*u*(1-u),c=u*u,j=i*3;
+    pPos[j]=a*pFrom[j]+b*pCtl[j]+c*pTo[j];pPos[j+1]=a*pFrom[j+1]+b*pCtl[j+1]+c*pTo[j+1];pPos[j+2]=a*pFrom[j+2]+b*pCtl[j+2]+c*pTo[j+2];}
+  pGeo.attributes.position.needsUpdate=true;
+  const k=Math.min(1,e/T);pMat.opacity=Math.sin(Math.PI*k)*.9;
+  applyMood(trans.from,trans.to,ease(k));scene.fog.density+=Math.sin(Math.PI*k)*.03;
+  if(e>=T){dust.visible=false;applyMood(trans.to,trans.to,1);trans=null;}}
+
+/* ---------- moving: tap the ground, drag to look, or WASD ---------- */
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+let yaw=0,pitch=.42,dist=7.5,lookPitch=0,isIndoor=false,fpv=false;
+const viewBtn=document.getElementById('viewBtn');
+function setView(on){fpv=on;lookPitch=0;viewBtn.setAttribute('aria-pressed',String(on));document.getElementById('viewLabel').textContent=on?'시점: 1인칭':'시점: 뒤에서';}
+viewBtn.addEventListener('click',()=>{setView(!fpv);viewBtn.blur();});
+/* theater seats: rows (back edge z, cushion y) and seat centres measured from the model's chairs */
+const SEAT_X=[];for(let i=0;i<7;i++)SEAT_X.push(-7.86+i*.575,4.41+i*.575);for(let i=0;i<9;i++)SEAT_X.push(-2.305+i*.575);
+const SEAT_ROWS=[[-8.38,-1.29],[-7.38,-1.09],[-6.38,-.94],[-5.36,-.79],[-4.32,-.63],[-3.36,-.5],[-2.37,-.33],[.83,-.11],[1.85,.04],[2.83,.27],[3.85,.51],[4.89,.74],[5.85,.94],[6.84,1.19],[7.81,1.34]];
+let seat=null;
+function nearSeat(p,r){let best=null,bd=r||2.6;SEAT_ROWS.forEach(([rz,ry])=>{const z=rz-.28;SEAT_X.forEach(x=>{const d=Math.hypot(x-p.x,z-p.z);if(d<bd){bd=d;best={x,z,y:ry};}});});return best;}
+function sitDown(s){if(!s)return;seat=s;me.target=null;pendingCap=null;me.root.position.set(s.x,s.y-.5,s.z);yaw=0;me.face=Math.PI;
+  lookPitch=Math.atan2(4.2-(s.y+.78),s.z+16.7);diag('sit '+s.x.toFixed(2)+','+s.z.toFixed(2));sendPresence(true);}
+function standUp(){if(!seat)return;const p=me.root.position;p.z+=.45;p.y=floorAt(p.x,p.z);seat=null;lookPitch=0;sendPresence(true);}
+function toggleSit(){if(seat)standUp();else if(space==='theater'&&isIndoor)sitDown(nearSeat(me.root.position));}
+const sitBtn=document.getElementById('sitBtn');let sitShown='';
+sitBtn.addEventListener('click',()=>{toggleSit();sitBtn.blur();});
+function updateSitBtn(){const hs=space==='theater'?'의자를 누르거나 F를 누르면 앉아요 · 마우스로 끌어서 둘러보기':'빛 캡슐을 누르면 기억이 열려요 · 오른쪽 위 시점 버튼이나 V 키로 1인칭 · 오른쪽에서 연도 바꾸기';const he=document.querySelector('#hint span');if(he&&he.textContent!==hs){he.textContent=hs;if(space==='theater'){hintGone=false;document.getElementById('hint').style.opacity=1;}}const st=seat?'up':(space==='theater'&&isIndoor&&!switching&&nearSeat(me.root.position))?'down':'';
+  if(st===sitShown)return;sitShown=st;sitBtn.hidden=!st;sitBtn.textContent=st==='up'?'일어나기 (F)':'자리에 앉기 (F)';}
+const pts=new Map();let down=null,pinch0=0,d0=0;
+const marker=new THREE.Mesh(new THREE.RingGeometry(.28,.34,40),new THREE.MeshBasicMaterial({color:0xf4e7c4,transparent:true,opacity:0,depthWrite:false}));
+marker.rotation.x=-Math.PI/2;marker.position.y=.03;scene.add(marker);let markerT=-9;
+let hintGone=false;function hide(){if(!hintGone){hintGone=true;document.getElementById('hint').style.opacity=0;}}
+canvas.addEventListener('pointerdown',e=>{firstGesture();canvas.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===1)down={x:e.clientX,y:e.clientY,t:performance.now(),moved:0};
+  if(pts.size===2){const [a,b]=[...pts.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);d0=dist;down=null;}});
+canvas.addEventListener('pointermove',e=>{const p=pts.get(e.pointerId);if(!p)return;const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  if(pts.size===1){yaw-=dx*.006;if(isIndoor)lookPitch=Math.min(.75,Math.max(-.7,lookPitch+dy*.004));else pitch=Math.min(1.1,Math.max(.12,pitch+dy*.004));if(down)down.moved+=Math.abs(dx)+Math.abs(dy);}
+  else if(pts.size===2){const [a,b]=[...pts.values()];dist=Math.min(14,Math.max(4,d0*pinch0/Math.hypot(a.x-b.x,a.y-b.y)));}});
+canvas.addEventListener('pointerup',e=>{if(!pts.has(e.pointerId))return;pts.delete(e.pointerId);
+  if(down&&down.moved<8&&performance.now()-down.t<600)walkTo(e.clientX,e.clientY);down=null;});
+canvas.addEventListener('pointercancel',e=>{pts.delete(e.pointerId);down=null;});
+canvas.addEventListener('wheel',e=>{e.preventDefault();dist=Math.min(14,Math.max(4,dist*(1+e.deltaY*.001)));},{passive:false});
+function walkTo(x,y){if(tryCapsule(x,y)){if(seat)standUp();hide();return;}pendingCap=null;ndc.set(x/innerWidth*2-1,-(y/innerHeight)*2+1);ray.setFromCamera(ndc,camera);
+  /* clicking a chair in the hall sits you in it */
+  if(space==='theater'){const h=ray.intersectObjects(theaterChairs.concat(theaterFloors))[0];
+    if(h&&theaterChairs.includes(h.object)){const st=nearSeat(h.point,1.2);if(st){sitDown(st);hide();return;}}}
+  if(seat)standUp();
+  const hit=ray.intersectObjects(space==='theater'?theaterFloors:[ground])[0];if(!hit)return;const [cx,cz]=clampToArea(hit.point.x,hit.point.z);me.target=new THREE.Vector3(cx,floorAt(cx,cz),cz);
+  marker.position.set(cx,floorAt(cx,cz)+.03,cz);markerT=performance.now();hide();}
+const keys=new Set();
+addEventListener('keydown',e=>{if(e.target.closest&&e.target.closest('button,input,textarea,select'))return;const k=e.key.toLowerCase();
+  if(['w','a','s','d','q','e','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){firstGesture();keys.add(k);e.preventDefault();hide();}
+  else if(['1','2','3','4'].includes(k)){setYear(ORDER[+k-1]);}
+  else if(k==='f'){firstGesture();toggleSit();hide();}
+  else if(k==='v'){setView(!fpv);}});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+addEventListener('blur',()=>keys.clear());
+
+/* ---------- game buildings from the Unity project (Bricktown by loafbrr, free to use) ---------- */
+/* The Unity shader colours a grey trim sheet using the paint stored on each vertex.
+   The same idea here: white paint = trim, red = concrete, green = accent, blue = brick, no paint = dark roof. */
+/* wall colours like the game's: green, slate blue, red brick, cream, teal, terracotta; then the material's own beige, yellow and trim */
+/* Bogwang-dong's red-brown brick villas (the main wall colour is the last value) */
+const PAL=[[0x5f8f4e,0xcdc2b4,0xe0a72e,0x9b4a35],[0x4f6f99,0xcdc2b4,0xc3602a,0x86402f],[0x9b4a35,0xcdc2b4,0xe0a72e,0xa75b40],
+           [0xc9b48a,0xb8ab98,0x3d64a8,0x7a3a2b],[0x3f7f7a,0xcdc2b4,0xc3602a,0x9a5440],[0xb5653e,0xcdc2b4,0x3d64a8,0xd8d0c2]];
+/* the Unity wall texture packs masks into channels the web can't read, so the brick pattern is drawn here instead */
+/* the walls repeat their texture every 3 m, about one storey, so each 256px cell gets one window; 2x2 cells let a few windows be lit */
+function brickWallTex(){const S=512,[c,g]=cv(S,S),[e,ge]=cv(S,S);g.fillStyle='#8a7a70';g.fillRect(0,0,S,S);ge.fillStyle='#000';ge.fillRect(0,0,S,S);
+  const bh=16,bw=48;for(let r=0;r<S/bh;r++){const off=(r%2)*bw/2;for(let x=-bw;x<S+bw;x+=bw){const v=165+Math.random()*60|0;
+    g.fillStyle=`rgb(${v},${v*.56|0},${v*.44|0})`;g.fillRect(x+off+1.5,r*bh+1.5,bw-3,bh-3);}}
+  const lit=[true,false,false,true];
+  for(let k=0;k<4;k++){const ox=(k%2)*256,oy=(k>>1)*256,x=ox+80,y=oy+56,w=96,h=128;
+    g.fillStyle='#ece8de';g.fillRect(x-8,y-8,w+16,h+16);g.fillRect(x-14,y+h+8,w+28,10);
+    g.fillStyle='#1d2228';g.fillRect(x,y,w,h);g.fillStyle='#ece8de';g.fillRect(x+w/2-3,y,6,h);g.fillRect(x,y+h*.42,w,6);
+    g.fillStyle='rgba(255,255,255,.07)';g.fillRect(x+4,y+4,w/2-10,h*.42-8);
+    if(lit[k]){ge.fillStyle='#ffd39a';ge.fillRect(x,y,w/2-3,h*.42);ge.fillRect(x+w/2+3,y,w/2-3,h*.42);ge.fillRect(x,y+h*.42+6,w/2-3,h*.58-6);ge.fillRect(x+w/2+3,y+h*.42+6,w/2-3,h*.58-6);}}
+  const mk=cnv=>{const t=new THREE.CanvasTexture(cnv);t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(.5,.5);t.anisotropy=4;return t;};
+  return {map:mk(c),lit:mk(e)};}
+const GRADE='float lum_=dot(diffuseColor.rgb,vec3(.299,.587,.114));diffuseColor.rgb=mix(vec3(lum_),diffuseColor.rgb,uSat)*uDim;';
+function brickMat(tex,pal,sat,dim,lit){const m=new THREE.MeshStandardMaterial({map:tex,vertexColors:true,roughness:.92});
+  if(lit){m.emissive=new THREE.Color(0xffc98a);m.emissiveMap=lit;m.emissiveIntensity=.75;}
+  m.onBeforeCompile=sh=>{Object.assign(sh.uniforms,{uB:{value:new THREE.Color(pal[0])},uC:{value:new THREE.Color(pal[1])},uA:{value:new THREE.Color(pal[2])},
+    uW:{value:new THREE.Color(pal[3])},uK:{value:new THREE.Color(0x3a3c40)},uSat:{value:sat},uDim:{value:dim}});
+    sh.fragmentShader='uniform vec3 uB,uC,uA,uW,uK;uniform float uSat,uDim;\n'+sh.fragmentShader.replace('#include <color_fragment>',
+      'vec3 mk=vColor;float w=min(mk.r,min(mk.g,mk.b));vec3 q=mk-w;float top=max(mk.r,max(mk.g,mk.b));'+
+      'diffuseColor.rgb*=uW*w+uC*q.r+uA*q.g+uB*q.b+uK*(1.0-top);'+GRADE);};
+  m.customProgramCacheKey=()=>'bricktown-wall';return m;}
+function storeMat(tex,sat,dim){const m=new THREE.MeshStandardMaterial({map:tex,roughness:.8});
+  m.onBeforeCompile=sh=>{Object.assign(sh.uniforms,{uSat:{value:sat},uDim:{value:dim}});
+    sh.fragmentShader='uniform float uSat,uDim;\n'+sh.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n'+GRADE);};
+  m.customProgramCacheKey=()=>'bricktown-store';return m;}
+const HIDDEN=new THREE.MeshBasicMaterial({visible:false});
+function loadTex(url){return new Promise((res,rej)=>new THREE.TextureLoader().load(url,t=>{t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;res(t);},undefined,rej));}
+const loadNote=document.getElementById('loadNote');
+async function loadGameBuildings(){
+  if(!THREE.FBXLoader||!window.fflate){loadNote.textContent='';return;}
+  try{
+    const [buf,bricks,store]=await Promise.all([
+      /* the model ships gzipped and written as text, the way the page host accepts it */
+      fetch('assets/bricktown/Buildings.fbx.gz.txt').then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(b64=>{
+        const bin=atob(b64.trim()),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+        const raw=fflate.gunzipSync(u);return raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);}),
+      loadTex('assets/bricktown/bricks.jpg'),loadTex('assets/bricktown/store.jpg')]);
+    /* the model file names Unity textures we replace anyway, so skip fetching them */
+    const mgr=new THREE.LoadingManager();mgr.setURLModifier(u=>/\.(png|jpe?g|exr|tga|psd|tif)$/i.test(u)?'data:image/gif;base64,R0lGODlhAQABAAAAACw=':u);
+    const obj=new THREE.FBXLoader(mgr).parse(buf,'');obj.updateMatrixWorld(true);const wallTex=brickWallTex();
+    const models=[];
+    obj.traverse(o=>{if(!o.isMesh||/colonly/i.test(o.name))return;
+      const g=o.geometry.clone();g.applyMatrix4(o.matrixWorld);g.computeBoundingBox();
+      const c=new THREE.Vector3();g.boundingBox.getCenter(c);g.translate(-c.x,-g.boundingBox.min.y,-c.z);g.computeBoundingBox();g.computeBoundingSphere();
+      models.push({name:o.name,g,size:g.boundingBox.getSize(new THREE.Vector3()),mats:(Array.isArray(o.material)?o.material:[o.material]).map(m=>m.name||'')});});
+    if(!models.length)throw new Error('no buildings');
+    const looks={2016:[1,.95],2026:[.5,.78]}; /* 2026 keeps its red brick, only faded */
+    const storeLook={2016:storeMat(store,.9,.95),2026:storeMat(store,.15,.6)};
+    lots.forEach(lot=>{
+      const F=span(lot);
+      const fits=models.map(m=>({m,err:Math.abs(m.size.x-F)})).sort((a,b)=>a.err-b.err).slice(0,4);
+      const pick=fits[lot.idx%fits.length].m;const s=Math.min(1.3,Math.max(.7,F/pick.size.x));
+      const depth=pick.size.z*s,height=pick.size.y*s;
+      [2016,2026].forEach(y=>{
+        const proc=lot.proc&&lot.proc[y];if(!proc)return;
+        const [sat,dim]=looks[y];const pal=PAL[(lot.idx*7+3)%PAL.length];
+        const wall=brickMat(wallTex.map,pal,sat,dim,y===2016?wallTex.lit:null),trim=brickMat(bricks,pal,sat,dim);
+        const mats=pick.mats.map(n=>/store|door/i.test(n)?storeLook[y]:/dirt/i.test(n)?HIDDEN:/trim/i.test(n)?trim:wall);
+        const mesh=new THREE.Mesh(pick.g,mats.length>1?mats:mats[0]);mesh.scale.setScalar(s);
+        if(lot.kind==='x'){mesh.rotation.y=lot.side<0?Math.PI/2:-Math.PI/2;mesh.position.set(lot.side*(2.8+depth/2),0,lot.cz);}
+        else{const face=lot.cz+lot.nz*3;mesh.rotation.y=lot.nz>0?0:Math.PI;mesh.position.set(lot.cx,0,face-lot.nz*depth/2);}
+        groups[y].add(mesh);
+        proc.forEach(p=>groups[y].remove(p));const box=proc[0].userData.box;if(box)box.h=height;});
+    });
+    loadNote.textContent='건물: Bricktown (loafbrr)';
+  }catch(err){console.warn('game buildings',err);loadNote.textContent='게임 건물을 불러오지 못해 기본 건물로 보여줘요';}
+}
+loadGameBuildings();
+
+/* ---------- walking together: everyone with this page open right now ----------
+   Each ghost shares where it stands, which year it is in and which room of that year.
+   A year holds rooms of 20; the 21st person starts room 2. Nothing is stored. */
+const ROOM_SIZE=20;
+const TINTS=[0x7ff5ff,0x8fe9ff,0x9dfff0,0x7fd8ff,0xa8f0ff,0x86ffe0,0xb5e8ff];
+const myTint=TINTS[(Math.random()*TINTS.length)|0];
+me.gm.uniforms.uColor.value.set(myTint);me.floatG.children[1].material.color.set(myTint);myLight.color.set(myTint);
+bubbleMats[0].uniforms.uColor.value.set(myTint);
+let room=null,userCap=null,myShard=1,lastSent=0,lastKey='';
+const remotes=new Map();const nameCache=new Map();
+const countEl=document.getElementById('count'),hereEl=document.querySelector('.here');
+function pickShard(y){const n={};if(room)room.peers().forEach(p=>{if(p.sameTab||p.kind!=='viewer')return;const pr=p.presence||{};
+  if(pr.y===y&&(pr.sp||'bogwang')===space&&Number.isInteger(pr.s))n[pr.s]=(n[pr.s]||0)+1;});let s=1;while((n[s]||0)>=ROOM_SIZE-1)s++;return s;}
+function sendPresence(force){if(!room)return;const p=me.root.position;
+  const st={sp:space,h:+p.y.toFixed(2),x:+p.x.toFixed(2),z:+p.z.toFixed(2),f:+me.floatG.rotation.y.toFixed(2),y:year,s:myShard,t:myTint,k:seat?1:0};
+  const key=JSON.stringify(st);const now=performance.now();if(!force&&(key===lastKey||now-lastSent<100))return;
+  lastKey=key;lastSent=now;room.presence(st).catch(()=>{});}
+function placeLabel(){document.getElementById('placeYear').textContent=year;
+  const b=document.getElementById('spaceBtn');if(b)b.firstChild.textContent=SP[space].name+' ';}
+async function resolveName(r,by){
+  if(!by){setGhostLabel(r.g,'방문자');return;}
+  if(nameCache.has(by)){setGhostLabel(r.g,nameCache.get(by));return;}
+  setGhostLabel(r.g,'방문자');
+  try{const ps=userCap?await userCap.profiles([by]):null;const nm=(ps&&ps[by]&&ps[by].name)||'방문자';nameCache.set(by,nm);
+    if(remotes.get(r.peer)===r)setGhostLabel(r.g,nm);}catch(e){}}
+function dropRemote(id){const r=remotes.get(id);if(!r)return;scene.remove(r.g.root);[r.g.bubble.material,r.g.gm].forEach(m=>{const i=bubbleMats.indexOf(m);if(i>=0)bubbleMats.splice(i,1);});remotes.delete(id);}
+const num=v=>typeof v==='number'&&isFinite(v);
+function updatePeers(dt){
+  let here=0;
+  if(room){
+    const seen=new Set();
+    room.peers().forEach(p=>{
+      if(p.sameTab||p.kind!=='viewer')return;const pr=p.presence||{};
+      if(!num(pr.x)||!num(pr.z)||(pr.sp||'bogwang')!==space||pr.y!==year||pr.s!==myShard||trans)return;
+      seen.add(p.peer);here++;
+      let r=remotes.get(p.peer);
+      const tint=TINTS.includes(pr.t)?pr.t:TINTS[1];
+      if(!r){const g=makeGhost(tint,null);const [cx,cz]=clampToArea(pr.x,pr.z);g.root.position.set(cx,0,cz);r={g,peer:p.peer,by:p.by};remotes.set(p.peer,r);resolveName(r,p.by);}
+      const [tx,tz]=clampToArea(pr.x,pr.z);const gp=r.g.root.position;
+      gp.x+=(tx-gp.x)*Math.min(1,dt*8);gp.z+=(tz-gp.z)*Math.min(1,dt*8);gp.y=pr.k===1&&num(pr.h)?pr.h:floorAt(gp.x,gp.z);if(num(pr.f))r.g.face=pr.f;});
+    [...remotes.keys()].forEach(id=>{if(!seen.has(id))dropRemote(id);});
+  }
+  const alone=here===0;others.forEach(o=>o.root.visible=alone);
+  const total=1+(alone?others.length:here);
+  if(countEl.textContent!==String(total))countEl.textContent=total;
+  hereEl.title=alone?'예시 방문자 3명 포함':'지금 같은 해, 같은 방에 있는 사람';
+}
+function remoteGhosts(){return [...remotes.values()].map(r=>r.g);}
+(async()=>{
+  if(!(window.claude&&window.claude.use))return;
+  try{[room,userCap]=await Promise.all([claude.use('room'),claude.use('user')]);}catch(e){room=null;}
+  if(!room)return;
+  room.onPeers(()=>{},()=>{room=null;remotes.forEach((_,id)=>dropRemote(id));placeLabel();});
+  placeLabel();sendPresence(true);
+  setTimeout(()=>{myShard=pickShard(year);placeLabel();sendPresence(true);},1500);
+})();
+
+/* ---------- leaving memories ----------
+   Each person keeps their memories in one document, memories/<their id>, as a list.
+   Everyone reads all of them; only the writer (and the page's owner) can change them.
+   Photos go to the artifact's file store as resized JPEGs; a sound file is stored as base64 text,
+   because the file store takes no audio types. */
+const MAX_MINE=30,MAX_PHOTOS=5,MAX_SOUND=5*1024*1024;
+const HUES=[0xe8c78a,0xf0d49a,0xc9d8ef,0xf2c48d,0xd6e4ea,0xb8cbe0,0xf0a77a,0xe9b9b0,0xf3e19a,0xe6d6b4,0xcfe2c9];
+let db=null,assetsCap=null,myUid=null,myItems=[],pendingOpen=null;
+const userCaps=new Map();
+const layerOf=yy=>yy>=2021?2026:yy>=2011?2016:yy>=2001?2006:1996;
+function whoIs(uid){if(nameCache.has(uid))return Promise.resolve(nameCache.get(uid));
+  if(!userCap)return Promise.resolve('누군가');
+  return userCap.profiles([uid]).then(ps=>{const n=(ps&&ps[uid]&&ps[uid].name)||'누군가';nameCache.set(uid,n);return n;}).catch(()=>'누군가');}
+function refreshMemCount(){$('memCount').textContent='기억 '+capsOf(year).length;}
+const isStr=(v,max)=>typeof v==='string'&&v.length>0&&v.length<=max;
+const isId=v=>typeof v==='string'&&/^[0-9a-f]{32}$/.test(v);
+function cleanItem(it,owner){
+  if(!it||!isStr(it.id,40)||!Number.isInteger(it.yy)||it.yy<1900||it.yy>2100||!num(it.x)||!num(it.z))return null;
+  if(!isStr(it.title,24)||!isStr(it.text,600))return null;
+  const sp=it.sp==='theater'?'theater':'bogwang';const [cx,cz]=clampToArea(it.x,it.z,SP[sp].areas);const season=['봄','여름','가을','겨울'].includes(it.season)?it.season:'';
+  return {user:true,key:owner+'/'+it.id,id:it.id,owner,sp,year:layerOf(it.yy),yy:it.yy,pos:[cx,(num(it.h)?Math.max(-3,Math.min(3,it.h)):0)+1.3,cz],title:it.title,text:it.text,
+    when:it.yy+(season?' · '+season:''),anon:!!it.anon,photos:(Array.isArray(it.photos)?it.photos:[]).filter(isId).slice(0,MAX_PHOTOS),
+    soundAsset:isId(it.sound)?it.sound:null,hue:HUES.includes(it.hue)?it.hue:HUES[0]};}
+function syncMemories(snap){
+  const next=new Map();
+  snap.docs.forEach(d=>{const items=(d.data()||{}).items;if(!Array.isArray(items))return;
+    if(d.id===myUid)myItems=items.slice();
+    items.forEach(it=>{const m=cleanItem(it,d.id);if(m)next.set(m.key,m);});});
+  if(!snap.docs.some(d=>d.id===myUid))myItems=[];
+  userCaps.forEach((cap,key)=>{const m=next.get(key);if(!m||JSON.stringify(m)!==JSON.stringify(cap.m)){removeCapsule(cap);userCaps.delete(key);}});
+  next.forEach((m,key)=>{if(userCaps.has(key))return;const cap=makeCapsule(m);userCaps.set(key,cap);attachVoice(cap);
+    if(m.photos.length)addPrints(cap,m.photos.map(id=>'/_blob/'+id),m.title);
+    if(pendingOpen===key){pendingOpen=null;if(m.year!==year)setYear(m.year);setTimeout(()=>openCard(cap),m.year!==year?T*1000+100:0);}});
+  refreshMemCount();}
+
+/* the sheet */
+const scrimEl=$('leaveScrim'),form=$('leaveForm');
+function openLeave(){$('fYear').value=String(year===2026?2026:year);$('fErr').textContent='';
+  $('fPhotosLabel').hidden=$('fThumbs').hidden=$('fSoundLabel').hidden=!assetsCap;
+  scrimEl.hidden=false;setTimeout(()=>$('fTitle').focus(),30);}
+function closeLeave(){scrimEl.hidden=true;}
+let canWrite=null;
+$('fab').addEventListener('click',()=>{diag('fab db='+!!db+' uid='+!!myUid+' canWrite='+canWrite);
+  if(!db){toastErr(window.claude?'Claude에 로그인한 상태에서만 기억을 남길 수 있어요.':'이 주소에서는 아직 기억을 저장할 수 없어요. 기억 저장은 준비 중이에요.');return;}
+  if(!myUid){toastErr('Claude에 로그인한 상태에서만 기억을 남길 수 있어요.');return;}
+  if(canWrite===false){toastErr('이 페이지에서 기억을 남길 권한이 없어요. 페이지 주인에게 편집 권한을 받아야 해요.');return;}if(myItems.length>=MAX_MINE){toastErr('기억은 한 사람당 '+MAX_MINE+'개까지 남길 수 있어요. 오래된 기억을 지우면 새로 남길 수 있어요.');return;}openLeave();});
+function toastErr(msg){openLeave();$('fErr').textContent=msg;}
+$('fCancel').addEventListener('click',closeLeave);
+scrimEl.addEventListener('click',e=>{if(e.target===scrimEl)closeLeave();});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&!scrimEl.hidden)closeLeave();});
+$('fPhotos').addEventListener('change',()=>{const fs=[...$('fPhotos').files].slice(0,MAX_PHOTOS);$('fThumbs').replaceChildren(...fs.map(f=>{const i=document.createElement('img');i.alt='';i.src=URL.createObjectURL(f);return i;}));
+  $('fErr').textContent=$('fPhotos').files.length>MAX_PHOTOS?'사진은 처음 '+MAX_PHOTOS+'장만 올라가요.':'';});
+/* resize to 1600px and re-encode as JPEG: iPhone HEIC works where the browser can open it, and location data is dropped */
+async function toJpeg(file){
+  const url=URL.createObjectURL(file);
+  try{const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('decode'));i.src=url;});
+    const k=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight));const [c,g]=cv(Math.round(img.naturalWidth*k),Math.round(img.naturalHeight*k));
+    g.drawImage(img,0,0,c.width,c.height);return await new Promise(res=>c.toBlob(res,'image/jpeg',.85));}
+  finally{URL.revokeObjectURL(url);}}
+function bytesToB64(buf){const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s);}
+const ERR={too_large:'파일이 너무 커요.',unsupported_type:'이 형식의 파일은 올릴 수 없어요.',quota_or_state:'저장 공간이 가득 찼어요.',rate_limited:'잠깐 뒤에 다시 시도해 주세요.',
+  quota_exceeded:'저장 공간이 가득 찼어요.',invalid_argument:'이 계정으로는 기억을 저장할 수 없어요.',resource_exhausted:'잠깐 뒤에 다시 시도해 주세요.'};
+form.addEventListener('submit',async e=>{
+  e.preventDefault();diag('submit');const btn=$('fSubmit');if(btn.disabled)return;
+  const yy=parseInt($('fYear').value,10),title=$('fTitle').value.trim(),text=$('fText').value.trim();
+  if(!(yy>=1950&&yy<=2026)){$('fErr').textContent='기억 속 연도를 1950에서 2026 사이로 적어 주세요.';$('fYear').focus();return;}
+  if(!title){$('fErr').textContent='제목을 적어 주세요.';$('fTitle').focus();return;}
+  if(text.length<5){$('fErr').textContent='기억을 한 문장 이상 적어 주세요.';$('fText').focus();return;}
+  const photoFiles=assetsCap?[...$('fPhotos').files].slice(0,MAX_PHOTOS):[];const soundFile=assetsCap?$('fSound').files[0]:null;
+  if(soundFile&&soundFile.size>MAX_SOUND){$('fErr').textContent='소리 파일은 5MB까지 올릴 수 있어요.';return;}
+  btn.disabled=true;$('fErr').textContent='';const label=btn.textContent;
+  const uploaded=[];
+  try{
+    const photos=[];
+    for(let i=0;i<photoFiles.length;i++){btn.textContent=`사진 올리는 중 ${i+1}/${photoFiles.length}`;
+      let jpg;try{jpg=await toJpeg(photoFiles[i]);}catch(err){throw {code:'unsupported_type',message:'photo'};}
+      const r=await assetsCap.upload(jpg,{type:'image/jpeg'});photos.push(r.id);uploaded.push(r.id);}
+    let sound=null;
+    if(soundFile){btn.textContent='소리 올리는 중';
+      const b64=bytesToB64(await soundFile.arrayBuffer());
+      try{await (ac||new (window.AudioContext||window.webkitAudioContext)()).decodeAudioData(b64ToBytes(b64).buffer.slice(0));}catch(err){throw {code:'unsupported_type',message:'sound'};}
+      const r=await assetsCap.upload(new Blob([b64],{type:'text/plain'}),{type:'text/plain'});sound=r.id;uploaded.push(r.id);}
+    btn.textContent='저장하는 중';
+    const p=me.root.position;const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const item={id,sp:space,h:+p.y.toFixed(2),yy,season:$('fSeason').value,title,text,anon:$('fAnon').checked,x:+p.x.toFixed(2),z:+p.z.toFixed(2),
+      photos,sound,hue:HUES[(Math.random()*HUES.length)|0],at:new Date().toISOString()};
+    const items=[...myItems,item];
+    await db.doc('memories/'+myUid).set({items});myItems=items;diag('saved '+items.length);
+    pendingOpen=myUid+'/'+id;form.reset();$('fThumbs').replaceChildren();closeLeave();
+  }catch(err){
+    const code=err&&err.code;
+    console.warn('save memory',err);showErr('기억 저장 실패 ('+(code||err&&err.message||err)+')');
+    $('fErr').textContent=code==='unsupported_type'&&err.message==='photo'?'이 사진을 열 수 없어요. JPG나 PNG로 바꿔서 올려 주세요.':
+      code==='unsupported_type'&&err.message==='sound'?'이 소리 파일을 열 수 없어요. mp3나 m4a로 올려 주세요.':(ERR[code]||'저장하지 못했어요 ('+(code||'알 수 없는 오류')+'). 잠깐 뒤에 다시 시도해 주세요.');
+    for(const id of uploaded){assetsCap.delete(id).catch(()=>{});}
+  }finally{btn.disabled=false;btn.textContent=label;}
+});
+
+/* deleting one of your own: asks once inside the card, then removes the record and its files */
+$('cardDelete').addEventListener('click',async()=>{
+  const b=$('cardDelete'),cap=openCap;if(!cap||!cap.m.user||cap.m.owner!==myUid)return;
+  if(!b.dataset.armed){b.dataset.armed='1';b.textContent='정말 지울까요?';return;}
+  b.disabled=true;
+  try{const items=myItems.filter(it=>it.id!==cap.m.id);await db.doc('memories/'+myUid).set({items});myItems=items;
+    if(assetsCap)[...cap.m.photos,cap.m.soundAsset].filter(Boolean).forEach(id=>assetsCap.delete(id).catch(()=>{}));closeCard();}
+  catch(err){b.textContent='지우지 못했어요';}finally{b.disabled=false;}});
+
+(async()=>{
+  if(!(window.claude&&window.claude.use)){$('fab').hidden=false;return;} /* a downloaded copy: the button explains */
+  let u;
+  try{[db,assetsCap,u]=await Promise.all([claude.use('db'),claude.use('assets'),claude.use('user')]);}catch(e){return;}
+  if(!db){$("fab").hidden=false;return;} /* explains on click that saving needs sign-in */
+  userCap=userCap||u;myUid=u?await u.id():null;
+  db.collection('memories').onSnapshot(syncMemories,err=>console.warn('memories',err&&err.code));
+  canWrite=u?await u.can('data.write'):null;diag('init db='+!!db+' assets='+!!assetsCap+' uid='+!!myUid+' canWrite='+canWrite+' room='+!!room);
+  $('fab').hidden=false; /* always offered; the sheet explains when saving is not possible */
+})();
+
+/* ---------- real signs and notices from the Bogwang-dong footage, put back on the alley ---------- */
+(function(){
+  const tl=new THREE.TextureLoader();
+  const standing=lots.filter(l=>l.kind==='x'&&l.r3>=.4);
+  const put=(file,w,h,lotIdx,u,y,years,dim)=>{const lot=standing[lotIdx%standing.length];if(!lot)return;
+    tl.load('assets/bogwang/'+file,tex=>{tex.encoding=THREE.sRGBEncoding;tex.anisotropy=4;
+      years.forEach(yr=>{const m=yr===2026?new THREE.MeshStandardMaterial({map:tex,roughness:.85,color:dim?0x9a958c:0xffffff}):new THREE.MeshBasicMaterial({map:tex,color:0xd8d2c6});
+        const pl=new THREE.Mesh(new THREE.PlaneGeometry(w,h),m);groups[yr].add(onFace(pl,lot,Math.max(-span(lot)/2+w/2+.2,Math.min(span(lot)/2-w/2-.2,u)),y,.09+Math.random()*.02));});});};
+  put('sign-bosung.jpg',3.2,2.43,1,0,3.4,[2016,2026],true);
+  put('sign-jeonpa.jpg',3.6,.78,4,.3,3.1,[2016,2026],true);
+  put('sign-gyeongro.jpg',.42,2.2,7,-1,1.7,[2016,2026],false);
+  put('post-hyugyo.jpg',.8,.99,2,1.2,1.55,[2026],false);
+  put('post-cat.jpg',.62,.43,5,-1.4,1.5,[2026],false);
+  put('post-hannam.jpg',.36,.55,8,.9,1.45,[2026],false);
+  /* shutters and doors with the X and 공가 marks, filmed in Bogwang-dong */
+  const shut=['shut-1.jpg','shut-2.jpg','door-blue.jpg'];
+  standing.forEach((lot,i)=>{if(i%2)return;const f=shut[i%3],w=f==='door-blue.jpg'?1.5:2.4;
+    tl.load('assets/bogwang/'+f,tex=>{tex.encoding=THREE.sRGBEncoding;
+      const pl=new THREE.Mesh(new THREE.PlaneGeometry(w,2.2),new THREE.MeshStandardMaterial({map:tex,roughness:.8,color:0xb8b2a8}));
+      groups[2026].add(onFace(pl,lot,-span(lot)/2+w/2+.4,1.1,.06));});});
+  /* the 한남3구역 banner on the construction fences of cleared lots */
+  lots.filter(l=>l.kind==='x'&&l.r3<.4).slice(0,4).forEach(lot=>tl.load('assets/bogwang/banner.jpg',tex=>{tex.encoding=THREE.sRGBEncoding;
+    const pl=new THREE.Mesh(new THREE.PlaneGeometry(2.6,1.86),new THREE.MeshStandardMaterial({map:tex,roughness:.9,color:0xbdb8ae}));
+    groups[2026].add(onFace(pl,lot,0,1.15,.08));}));
+})();
+
+/* photographed facades on the alley's own walls, and the real streets at both ends */
+(function(){
+  const tl=new THREE.TextureLoader();const standing=lots.filter(l=>l.kind==='x'&&l.r3>=.4);
+  const face=(file,lotIdx,aspect,maxW)=>{const lot=standing[lotIdx%standing.length];if(!lot)return;
+    tl.load('assets/bogwang/'+file,tex=>{tex.encoding=THREE.sRGBEncoding;tex.anisotropy=4;const w=Math.min(maxW,span(lot)-.3),h=w/aspect;
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshStandardMaterial({map:tex,roughness:.9}));
+      groups[2026].add(onFace(m,lot,0,h/2,.12));});};
+  face('fac-ivy.jpg',3,1.54,7.2);face('fac-store.jpg',6,1.78,5.4);face('fac-ivy.jpg',10,1.54,6.4);face('fac-store.jpg',12,1.78,5);
+  const end=(file,z,rot)=>tl.load('assets/bogwang/'+file,tex=>{tex.encoding=THREE.sRGBEncoding;
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(26,14.6),new THREE.MeshBasicMaterial({map:tex,color:0xe6e2da}));
+    m.position.set(0,7.3-.6,z);m.rotation.y=rot;groups[2026].add(m);groups[2016].add(m.clone());});
+  end('end-street.jpg',-42.8,0);end('end-fence.jpg',42.8,Math.PI);
+})();
+
+/* weeds pushing up along the walls, and broken glass that catches the light */
+(function(){
+  const [c,g]=cv(128,128);
+  for(let i=0;i<46;i++){const x=rnd(8,120),h=rnd(50,124),lean=rnd(-26,26),gr=rnd(80,150)|0;
+    g.strokeStyle=`rgba(${gr*.55|0},${gr},${gr*.4|0},${rnd(.7,1)})`;g.lineWidth=rnd(1.5,3.5);g.beginPath();g.moveTo(x,128);g.quadraticCurveTo(x+lean*.3,128-h*.6,x+lean,128-h);g.stroke();}
+  const tex=new THREE.CanvasTexture(c);tex.encoding=THREE.sRGBEncoding;
+  const mat=new THREE.MeshStandardMaterial({map:tex,alphaTest:.35,transparent:true,side:THREE.DoubleSide,roughness:1,color:0x9aa88a});
+  const geo=new THREE.PlaneGeometry(1,1);geo.translate(0,.5,0);
+  const tuft=(G,x,z,s)=>{const t=new THREE.Group();for(let k=0;k<2;k++){const m=new THREE.Mesh(geo,mat);m.rotation.y=k*Math.PI/2+rnd(0,1);t.add(m);}
+    t.scale.set(s*rnd(.8,1.4),s,s);t.position.set(x,0,z);G.add(t);};
+  const along=(G,n,big)=>{for(let i=0;i<n;i++){const side=Math.random()<.5?-1:1;tuft(G,side*rnd(1.95,2.35),rnd(-37,37),rnd(.4,big));}};
+  along(groups[2026],150,1.3);along(groups[2016],28,.6);along(groups[2006],18,.5);
+  lots.filter(l=>l.kind==='x'&&l.r3<.4).forEach(l=>{for(let k=0;k<10;k++)tuft(groups[2026],l.cx+rnd(-2.5,2.5),l.cz+rnd(-l.sz/2,l.sz/2),rnd(.7,1.6));});
+  const n=500,pos=new Float32Array(n*3);
+  for(let i=0;i<n;i++){const side=Math.random()<.5?-1:1;pos[i*3]=side*rnd(.3,2.3);pos[i*3+1]=.03;pos[i*3+2]=rnd(-36,36);}
+  const gg=new THREE.BufferGeometry();gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  const glass=new THREE.Points(gg,new THREE.PointsMaterial({map:GLOW,color:0xd6ecff,size:.09,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+  groups[2026].add(glass);glassMat=glass.material;
+})();
+
+/* ---------- 광주극장: the Unity asset, with the Bogwang-dong footage playing on its screen ---------- */
+const theaterG=new THREE.Group();theaterG.visible=false;scene.add(theaterG);
+const theaterFloors=[],theaterChairs=[];let theaterReady=null;
+const reel=document.createElement('video');reel.loop=true;reel.muted=true;reel.playsInline=true;reel.preload='none';reel.setAttribute('playsinline','');
+const TEXN=['EtcGt','GtChair','GtFloorInner2nd','GtFloorInnerTrim1st','GtFloorInnerTrim3rd','GtGreenTile','GtGround','GtRedFabric','GtStairDoor','GtTheaterConc','GtTheaterSide','GtTheaterWooden','GtTrim','GtWhiteConc','GtWoodTrim','OutterWallGt','PicTex'];
+async function fetchFbx(url,mgr){const t=await fetch(url).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();});
+  const raw=fflate.gunzipSync(b64ToBytes(t));return new THREE.FBXLoader(mgr).parse(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength),'');}
+function loadTheater(){
+  if(theaterReady)return theaterReady;
+  theaterReady=(async()=>{
+    const tl=new THREE.TextureLoader(),cache={};
+    const mgr=new THREE.LoadingManager();mgr.setURLModifier(u=>/\.(png|jpe?g|exr|tga|psd|tif)$/i.test(u)?'data:image/gif;base64,R0lGODlhAQABAAAAACw=':u);
+    reel.src='assets/bogwang/reel.mp4';
+    const vt=new THREE.VideoTexture(reel);vt.encoding=THREE.sRGBEncoding;
+    const screenMat=new THREE.MeshBasicMaterial({map:vt,color:0xdddddd});
+    const glass=new THREE.MeshStandardMaterial({color:0x223042,roughness:.08,metalness:.7,transparent:true,opacity:.38});
+    const mat=name=>{if(cache[name])return cache[name];let m;
+      if(/^Screen/.test(name))m=HIDDEN; /* the model's screen is pleated; a flat one hangs in its place */
+      else if(/^LightYellow/.test(name))m=new THREE.MeshBasicMaterial({color:0xffc977});
+      else if(/^Light/.test(name))m=new THREE.MeshBasicMaterial({color:0xfff0cf});
+      else if(/^Glass/.test(name))m=glass;
+      else if(/^ShadowBox/.test(name))m=HIDDEN;
+      else{const k=TEXN.find(k=>name===k||name.startsWith(k));
+        if(k){const tx=tl.load('assets/gwangju/tex/'+k+'.jpg');tx.encoding=THREE.sRGBEncoding;tx.wrapS=tx.wrapT=THREE.RepeatWrapping;tx.anisotropy=4;
+          m=new THREE.MeshStandardMaterial({map:tx,roughness:.85});}
+        else m=new THREE.MeshStandardMaterial({color:0x777370,roughness:.9});}
+      return cache[name]=m;};
+    const objs=await Promise.all(['Gt_Ground','GwangjuTheater_Exterior','GwangjuTheater_Interior'].map(n=>fetchFbx('assets/gwangju/'+n+'.fbx.gz.txt',mgr)));
+    objs.forEach(o=>{o.scale.setScalar(.01);o.traverse(c=>{if(!c.isMesh)return;
+      const ms=Array.isArray(c.material)?c.material:[c.material];const nm=ms.map(x=>mat(x.name||''));c.material=nm.length>1?nm:nm[0];
+      if(/^Door/.test(c.name))c.visible=false; /* doors stand open */
+      if(/^(Gt_Ground|GtFloorInnerTrim1st|GtGreenTile)$/.test(c.name))theaterFloors.push(c);if(/^Chair_1F/.test(c.name))theaterChairs.push(c);});theaterG.add(o);});
+    const scr=new THREE.Mesh(new THREE.PlaneGeometry(16.4,9.2),screenMat);scr.position.set(0,4.2,-16.7);theaterG.add(scr);
+    /* warm light at the doors and in the lobby, cool light from the screen */
+    [[0,4,21.5,0xffc27a,1.8,18],[0,3,15,0xffd49a,1.3,14],[0,6,2,0xffe2b0,.7,24],[0,2,-10,0xbfd2ff,.9,14]].forEach(([x,y,z,c,i,r])=>{const l=new THREE.PointLight(c,i,r,2);l.position.set(x,y,z);theaterG.add(l);});
+    theaterG.updateMatrixWorld(true);
+  })();
+  theaterReady.catch(()=>{theaterReady=null;});
+  return theaterReady;}
+/* go quiet when the page is hidden (another tab, minimized, panel closed); come back when it is shown again */
+document.addEventListener('visibilitychange',()=>{const hid=document.visibilityState==='hidden';
+  if(hid){if(ac&&ac.state==='running')ac.suspend();reel.pause();}
+  else{if(ac&&soundOn)ac.resume();if(space==='theater'&&reel.src)reel.play().catch(()=>{});}});
+addEventListener('pagehide',()=>{if(ac)ac.suspend();reel.pause();});
+function updateReel(){if(space!=='theater'||!reel.src)return;const p=me.root.position;
+  const d=Math.hypot(p.x,p.z+16.8);const want=soundOn&&p.z<12.5;
+  if(reel.muted===want)reel.muted=!want;reel.volume=Math.max(0,Math.min(1,1.25-d/22));}
+
+/* ---------- moving between places ---------- */
+const fadeEl=document.getElementById('fade'),spaceBtn=document.getElementById('spaceBtn'),spaceMenu=document.getElementById('spaceMenu');
+let switching=false;
+function countIn(sp){if(!room)return null;let n=0;room.peers().forEach(p=>{if(!p.sameTab&&p.kind==='viewer'&&((p.presence||{}).sp||'bogwang')===sp)n++;});return n+(sp===space?1:0);}
+function toggleMenu(open){spaceMenu.hidden=!open;spaceBtn.setAttribute('aria-expanded',String(open));
+  if(open){['bogwang','theater'].forEach(sp=>{const c=countIn(sp);document.getElementById('cnt-'+sp).textContent=c===null?'':c+'명';});
+    spaceMenu.querySelectorAll('button').forEach(b=>b.setAttribute('aria-current',String(b.dataset.sp===space)));}}
+spaceBtn.addEventListener('click',e=>{e.stopPropagation();diag('space menu '+(spaceMenu.hidden?'open':'close'));toggleMenu(spaceMenu.hidden);});
+spaceMenu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;toggleMenu(false);b.blur();spaceBtn.blur();diag('pick '+b.dataset.sp);firstGesture();setSpace(b.dataset.sp);});
+addEventListener('pointerdown',e=>{if(!spaceMenu.hidden&&!e.target.closest('.spaceMenu,.spaceBtn'))toggleMenu(false);});
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function setSpace(sp){
+  diag('setSpace '+sp+' now='+space+' switching='+switching+' trans='+!!trans);
+  if(sp===space||switching||trans||!SP[sp])return;switching=true;closeCard();fadeEl.classList.add('on');
+  await wait(470);
+  if(sp==='theater'){loadNote.textContent='광주극장 불러오는 중…';
+    try{await loadTheater();diag('theater loaded');}catch(err){console.warn('theater',err);showErr('광주극장 불러오기 실패 ('+(err&&(err.code||err.message)||err)+')');loadNote.textContent='광주극장을 불러오지 못했어요. 잠시 뒤 다시 골라 주세요.';fadeEl.classList.remove('on');switching=false;return;}}
+  space=sp;AREAS=SP[sp].areas;
+  const th=sp==='theater';theaterG.visible=th;ground.visible=!th;motes.visible=!th;
+  loadNote.textContent=th?'극장: 광주극장 3D 에셋 · 스크린: 보광동 다큐 기록':'건물: Bricktown (loafbrr)';
+  if(th){reel.play().catch(()=>{});}else{reel.pause();}
+  seat=null;const [sx,sz]=SP[sp].spawn;me.root.position.set(sx,floorAt(sx,sz),sz);me.target=null;pendingCap=null;yaw=0;first=true;
+  others.forEach(o=>{const q=randomSpot();o.root.position.copy(q);o.target=null;});
+  [...remotes.keys()].forEach(dropRemote);
+  showYear(year);applyMood(year,year,1);myShard=pickShard(year);updateUI(year);sendPresence(true);
+  diag('now in '+space);await wait(60);fadeEl.classList.remove('on');switching=false;}
+
+/* ---------- loop ---------- */
+function resize(){renderer.setSize(innerWidth,innerHeight,false);
+  if(composer){composer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));composer.setSize(innerWidth,innerHeight);}camera.aspect=innerWidth/innerHeight;camera.fov=innerWidth<innerHeight?68:55;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const camPos=new THREE.Vector3(),look=new THREE.Vector3();
+let prev=performance.now(),first=true,t=0;
+function frame(now){try{
+  const dt=Math.min(.05,(now-prev)/1000);prev=now;t+=dt;
+  let kx=0,kz=0;
+  if(keys.has('w')||keys.has('arrowup'))kz-=1;if(keys.has('s')||keys.has('arrowdown'))kz+=1;
+  if(keys.has('a')||keys.has('arrowleft'))kx-=1;if(keys.has('d')||keys.has('arrowright'))kx+=1;
+  if(keys.has('q'))yaw+=dt*1.6;if(keys.has('e'))yaw-=dt*1.6;
+  if((kx||kz)&&seat)standUp();
+  if(kx||kz){const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
+    const mx=fx*-kz+rx*kx,mz=fz*-kz+rz*kx,l=Math.hypot(mx,mz);me.target=new THREE.Vector3(me.root.position.x+mx/l*.6,0,me.root.position.z+mz/l*.6);}
+  if(!seat)step(me,dt);
+  others.forEach(o=>{if(!o.target){o.wait-=dt;if(o.wait<=0){o.target=randomSpot();o.wait=rnd(1.5,4);}}step(o,dt);});
+  updatePeers(dt);sendPresence(false);
+  [me,...others,...remoteGhosts()].forEach(g=>{const bob=reduce?0:Math.sin(t*1.6+g.phase)*.08;g.floatG.position.y=.28+bob;if(g.gm)g.gm.uniforms.uBase.value=g.root.position.y+g.floatG.position.y;
+    let dr=g.face-g.floatG.rotation.y;dr=Math.atan2(Math.sin(dr),Math.cos(dr));g.floatG.rotation.y+=dr*Math.min(1,dt*6);
+    const s=1+(reduce?0:Math.sin(t*2.1+g.phase)*.025);g.bubble.scale.set(s,1/s,s);});
+  bubbleMats.forEach(m=>m.uniforms.uTime.value=t);
+  if(trans)runTransition(now);
+  updateCaps(dt,now);updateFx(dt,now);updateReel();
+  /* inside the theater you see through the ghost's own eyes, like Still Here; outside the camera follows behind */
+  const p=me.root.position;isIndoor=fpv||(space==='theater'&&p.z<18.4);me.floatG.visible=!isIndoor;
+  if(isIndoor){const ey=seat?seat.y+.78:p.y+1.35;camPos.set(p.x,ey,p.z);look.set(p.x-Math.sin(yaw)*Math.cos(lookPitch),ey+Math.sin(lookPitch),p.z-Math.cos(yaw)*Math.cos(lookPitch));}
+  else{look.set(p.x,p.y+1.15,p.z);camPos.set(p.x+Math.sin(yaw)*Math.cos(pitch)*dist,p.y+1.15+Math.sin(pitch)*dist,p.z+Math.cos(yaw)*Math.cos(pitch)*dist);}
+  if(first){camera.position.copy(camPos);first=false;}else camera.position.lerp(camPos,Math.min(1,dt*5));
+  camera.lookAt(look);updateSitBtn();
+  const mk=(now-markerT)/900;marker.material.opacity=mk<1?(1-mk)*.8:0;marker.scale.setScalar(1+mk*.6);
+  if(composer)composer.render();else renderer.render(scene,camera);
+  }catch(e){showErr('화면 갱신: '+(e&&e.message));}requestAnimationFrame(frame);}
+applyMood(year,year,1);
+requestAnimationFrame(frame);
+})();
+</script>
