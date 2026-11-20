@@ -9,6 +9,7 @@
 <meta name="author" content="Sumin Kim">
 <meta name="copyright" content="© 2026 Sumin Kim">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>기억 지도</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -65,6 +66,7 @@ body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:
 .empty b{font-weight:400;font-size:15px;color:var(--ink);text-wrap:balance}
 .empty span{font-size:12px;color:var(--dim);text-wrap:balance;max-width:34ch}
 .nogl{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--dim)}
+@media (max-width:520px){.hint{text-align:left;padding-right:170px}}
 @media (max-width:420px){.empty{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(84px,env(safe-area-inset-right,0px))}}
 
 .right{display:grid;gap:8px;justify-items:end}
@@ -136,9 +138,45 @@ body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:
 .sheet .btns{display:flex;justify-content:flex-end;gap:8px}
 @media (max-width:520px){body.card-open .years,body.card-open .fab{opacity:0;pointer-events:none}.card{width:auto;right:max(16px,env(safe-area-inset-right,0px))}}
 @media (prefers-reduced-motion:reduce){.card{animation:none}}
+
+/* the way in: three quiet lines while the alley loads */
+.intro{position:fixed;inset:0;z-index:60;display:grid;place-items:center;overflow:auto;background:radial-gradient(ellipse at 50% 60%,rgba(40,42,46,.82),rgba(12,13,15,.97) 70%);backdrop-filter:blur(12px);transition:opacity 1.4s;
+  padding:calc(24px + env(safe-area-inset-top,0px)) max(24px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(24px,env(safe-area-inset-left,0px))}
+.intro.out{opacity:0;pointer-events:none}
+.introBox{width:100%;max-width:380px;display:grid;gap:14px;justify-items:center;text-align:center;word-break:keep-all}
+.intro h1{margin:0 0 22px;font-size:13px;font-weight:400;letter-spacing:.5em;text-indent:.5em;color:var(--ghost);opacity:.85;text-shadow:0 0 18px rgba(244,231,196,.5)}
+.introLine{margin:0;font-size:17px;font-weight:300;line-height:1.7;color:var(--ink);letter-spacing:.02em;opacity:0;animation:lineIn 2.2s ease var(--d) forwards}
+@keyframes lineIn{from{opacity:0;filter:blur(4px);transform:translateY(4px)}to{opacity:.92;filter:none;transform:none}}
+.introLoad{width:120px;height:1px;margin:30px 0 6px;background:rgba(230,227,220,.1);overflow:hidden}
+.introLoad i{display:block;height:100%;width:0;background:var(--ghost);box-shadow:0 0 8px var(--ghost);transition:width .6s}
+.introBtns{display:grid;gap:10px;justify-items:center;min-height:72px;opacity:0;transition:opacity 1.2s}
+.introBtns.on{opacity:1}
+.introGo{appearance:none;cursor:pointer;font:inherit;font-size:14px;font-weight:300;letter-spacing:.3em;text-indent:.3em;color:var(--ghost);background:transparent;
+  border:1px solid rgba(244,231,196,.35);border-radius:999px;padding:11px 30px;box-shadow:0 0 22px rgba(244,231,196,.08);transition:background .4s,box-shadow .4s}
+.introGo:hover{background:rgba(244,231,196,.08);box-shadow:0 0 30px rgba(244,231,196,.2)}
+.introMute{appearance:none;cursor:pointer;font:inherit;font-size:11.5px;color:var(--dim);background:none;border:0;padding:4px 8px;letter-spacing:.08em}
+.introGo:focus-visible,.introMute:focus-visible{outline:1px solid var(--ghost);outline-offset:3px}
+.introSign{margin:18px 0 0;font-family:var(--f-mono);font-size:10px;letter-spacing:.16em;color:var(--dim);opacity:.6}
+.srOnly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){.intro,.introBtns{transition:none}.introLine{animation:none;opacity:.92}}
+#fade span{position:absolute;left:0;right:0;top:50%;text-align:center;font-family:var(--f-mono);font-size:12px;color:var(--dim);letter-spacing:.04em}
+@media (prefers-reduced-motion:reduce){.intro{transition:none}}
 </style>
 
-<div id="fade" aria-hidden="true"></div>
+<div id="fade" aria-hidden="true"><span id="fadeNote"></span></div>
+<!-- entrance kept for later; hidden for now -->
+<div class="intro" id="intro" hidden role="dialog" aria-modal="true" aria-labelledby="introTitle">
+  <div class="introBox">
+    <h1 id="introTitle">기억 지도</h1>
+    <p class="introLine" style="--d:.4s">허물어질 날을 기다리는 골목이 있다.</p>
+    <p class="introLine" style="--d:1.6s">누군가 살았고, 누군가 떠났다.</p>
+    <p class="introLine" style="--d:2.8s">잠시, 유령이 되어 걸어 본다.</p>
+    <div class="introLoad" aria-hidden="true"><i id="introBar"></i></div>
+    <span class="srOnly" id="introStatus" aria-live="polite">골목으로 들어가는 중</span>
+    <div class="introBtns"><button class="introGo" id="introGo" type="button" disabled>들어가기</button><button class="introMute" id="introMute" type="button" disabled>소리 없이</button></div>
+    <p class="introSign">보광동 · 광주극장 &nbsp;—&nbsp; Sumin Kim</p>
+  </div>
+</div>
 <div id="errBox" role="alert" hidden></div>
 <canvas id="scene" aria-label="안개 낀 골목 3D 장면. 바닥을 누르면 버블 속 유령이 그곳으로 걸어가요. 오른쪽 연도 버튼으로 다른 해의 골목으로 바뀌어요."></canvas>
 <div class="hud">
@@ -146,7 +184,7 @@ body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:
     <div class="spaceMenu" id="spaceMenu" hidden>
       <button type="button" data-sp="bogwang"><b>보광동 골목</b><span>서울 용산구 · 재개발로 비어 가는 동네</span><i id="cnt-bogwang"></i></button>
       <button type="button" data-sp="theater"><b>광주극장</b><span>광주 동구 · 1935년부터 이어진 단관 극장</span><i id="cnt-theater"></i></button>
-    </div><span class="pmeta"><span id="placeYear">2026</span> · <span id="memCount">기억 3</span></span><span class="quiet"><em id="placeNote">철거를 앞둔 골목</em><span id="verNote">버전 29</span><span id="loadNote"></span></span></div>
+    </div><span class="pmeta"><span id="placeYear">2026</span> · <span id="memCount">기억 3</span></span><span class="quiet"><em id="placeNote">철거를 앞둔 골목</em><span id="verNote">버전 42</span><span id="loadNote"></span></span></div>
   <div class="right">
     <div class="here" title="예시 방문자 3명 포함"><i></i>함께 있는 사람 <b id="count">4</b></div>
     <button class="sound" id="viewBtn" type="button" aria-pressed="false" title="V 키로도 바꿀 수 있어요"><span id="viewLabel">시점: 뒤에서</span></button>
@@ -260,7 +298,7 @@ const errBox=document.getElementById('errBox');
 /* a short log of what happened, saved privately for the viewer so problems can be looked at later */
 const DIAG=[];let diagTimer=null;
 function diag(m){DIAG.push(new Date().toISOString().slice(11,19)+' '+String(m).slice(0,200));if(DIAG.length>80)DIAG.shift();
-  clearTimeout(diagTimer);diagTimer=setTimeout(()=>{try{if(inClaude&&db&&myUid)db.doc('data/users/'+myUid+'/debug').set({log:DIAG.slice(),ver:29,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});}catch(e){}},1500);}
+  clearTimeout(diagTimer);diagTimer=setTimeout(()=>{try{if(inClaude&&db&&myUid)db.doc('data/users/'+myUid+'/debug').set({log:DIAG.slice(),ver:42,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});}catch(e){}},1500);}
 let lastErr='';
 /* note every press and key the page actually receives (first 20), to tell missing input from broken features */
 let inputSeen=0;
@@ -629,26 +667,39 @@ function capLabel(title){const [c,g]=cv(512,128);g.textAlign='center';g.textBase
   g.font='500 40px "IBM Plex Sans KR", sans-serif';g.fillStyle='rgba(244,231,196,.98)';g.fillText(title,256,46);
   g.font='400 26px "IBM Plex Sans KR", sans-serif';g.fillStyle='rgba(230,227,220,.6)';g.fillText('누르면 열려요',256,94);return new THREE.CanvasTexture(c);}
 
-const capGeo=new THREE.OctahedronGeometry(.2,0);
+/* a memory is a small glass bead of light: a rim-lit orb, a warm core, a few motes circling it */
+const capGeo=new THREE.SphereGeometry(.28,32,20);
+function orbMat(hue){return new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+  uniforms:{uColor:{value:new THREE.Color(hue)},uOpacity:{value:1}},
+  vertexShader:'varying vec3 vN;varying vec3 vV;void main(){vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=normalize(-mv.xyz);gl_Position=projectionMatrix*mv;}',
+  fragmentShader:'uniform vec3 uColor;uniform float uOpacity;varying vec3 vN;varying vec3 vV;void main(){float f=pow(1.-abs(dot(normalize(vN),normalize(vV))),2.4);'+
+    'vec3 c=mix(uColor,vec3(1.),.25)*(.18+f*1.6);gl_FragColor=vec4(c,(.1+f*.9)*uOpacity);}'});}
 const hitGeo=new THREE.SphereGeometry(.75,10,8);
 const caps=[];
 const capLayer=new THREE.Group();scene.add(capLayer);
 function makeCapsule(m){
   const G=capLayer,root=new THREE.Group();root.position.set(...m.pos);G.add(root);
-  const crystal=new THREE.Mesh(capGeo,new THREE.MeshBasicMaterial({color:m.hue,transparent:true,opacity:.95}));crystal.scale.set(1,1.9,1);root.add(crystal);
-  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:m.hue,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.8}));glow.scale.set(1.6,1.6,1);root.add(glow);
+  /* each bead floats at its own height, the same every visit */
+  let hsh=2166136261;for(const ch of String(m.key||m.title))hsh=Math.imul(hsh^ch.charCodeAt(0),16777619);
+  const lift=((hsh>>>0)%1000)/1000;root.position.y=Math.max(.75,m.pos[1]-.55+lift*1.7);
+  const orb=new THREE.Group();root.add(orb);
+  const shell=new THREE.Mesh(capGeo,orbMat(m.hue));orb.add(shell);
+  const core=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:0xfff6e0,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.95}));core.scale.set(.4,.4,1);orb.add(core);
+  const motes=[0,1,2].map(i=>{const s=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:m.hue,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.9}));
+    s.scale.set(.09,.09,1);s.userData={r:.42+i*.06,sp:.9+i*.35,tilt:i*1.1,off:i*2.1};orb.add(s);return s;});
+  const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:GLOW,color:m.hue,blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.5}));glow.scale.set(1.3,1.3,1);root.add(glow);
   const hit=new THREE.Mesh(hitGeo,new THREE.MeshBasicMaterial({visible:false}));root.add(hit);
   const label=new THREE.Sprite(new THREE.SpriteMaterial({map:capLabel(m.title),transparent:true,depthWrite:false,opacity:0}));label.scale.set(2.4,.6,1);label.position.y=.85;root.add(label);
   /* the colour a memory gives back to the grey alley around it */
   const tint=new THREE.Mesh(new THREE.PlaneGeometry(7,7),new THREE.MeshBasicMaterial({map:GLOW,color:m.hue,transparent:true,opacity:.14,blending:THREE.AdditiveBlending,depthWrite:false}));
   tint.rotation.x=-Math.PI/2;tint.position.set(m.pos[0],.04,m.pos[2]);G.add(tint);
-  const cap={m,root,crystal,glow,hit,label,tint,opened:false,phase:rnd(0,6),photo:null,gain:null};hit.userData.cap=cap;caps.push(cap);
+  const cap={m,root,orb,shell,core,motes,glow,hit,label,tint,k:0,burst:null,opened:false,phase:rnd(0,6),photo:null,gain:null};hit.userData.cap=cap;caps.push(cap);
   return cap;}
 function removeCapsule(cap){const G=capLayer;G.remove(cap.root);G.remove(cap.tint);
   if(cap.src){try{cap.src.stop();}catch(e){}}if(cap.gain)cap.gain.disconnect();
   const i=caps.indexOf(cap);if(i>=0)caps.splice(i,1);if(openCap===cap)closeCard();}
 /* ---------- the memory's own photo, floating above its capsule as a glowing print ---------- */
-const PRINT_W=1.2,PRINT_H=PRINT_W*454/512;let frameTex=null;
+const PRINT_W=2.1,PRINT_H=PRINT_W*454/512;let frameTex=null;
 function softFrameTex(){if(frameTex)return frameTex;const [c,g]=cv(256,256);g.shadowColor='#fff';g.shadowBlur=40;g.fillStyle='#fff';g.fillRect(52,58,152,140);frameTex=new THREE.CanvasTexture(c);return frameTex;}
 function printTex(img,caption){const W=512,H=454,[c,g]=cv(W,H);g.fillStyle='#f3eee2';g.fillRect(0,0,W,H);
   const pw=472,ph=354,iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height,ia=iw/ih,ta=pw/ph;let sw=iw,sh=ih,sx=0,sy=0;
@@ -658,13 +709,13 @@ function printTex(img,caption){const W=512,H=454,[c,g]=cv(W,H);g.fillStyle='#f3e
   let t=caption;while(g.measureText(t).width>pw&&t.length>1)t=t.slice(0,-1);if(t!==caption)t=t.slice(0,-1)+'…';g.fillText(t,22,H-40);
   const tx=new THREE.CanvasTexture(c);tx.encoding=THREE.sRGBEncoding;tx.anisotropy=4;return tx;}
 function addPrints(cap,srcs,caption){
-  const group=new THREE.Group();group.position.y=1.05;cap.root.add(group);cap.print=group;cap.label.position.y=2.05;
-  const halo=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W*1.9,PRINT_H*1.9),new THREE.MeshBasicMaterial({map:softFrameTex(),color:cap.m.hue,transparent:true,opacity:.42,blending:THREE.AdditiveBlending,depthWrite:false}));
+  const group=new THREE.Group();group.position.y=.2;group.visible=false;group.scale.setScalar(.001);cap.root.add(group);cap.print=group;
+  const halo=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W*1.9,PRINT_H*1.9),new THREE.MeshBasicMaterial({map:softFrameTex(),color:cap.m.hue,transparent:true,opacity:.42,blending:THREE.AdditiveBlending,depthWrite:false}));halo.userData.full=.42;
   halo.position.z=-.06;group.add(halo);
   const list=srcs.slice(0,5);
   list.forEach((src,i)=>{const img=new Image();img.crossOrigin='anonymous';img.decoding='async';
     img.onload=()=>{if(!caps.includes(cap))return;const o=i===0?0:(i%2?1:-1)*Math.ceil(i/2);
-      const p=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W,PRINT_H),new THREE.MeshBasicMaterial({map:printTex(img,caption),color:0xe2ddd2}));
+      const p=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W,PRINT_H),new THREE.MeshBasicMaterial({map:printTex(img,caption),color:0xe2ddd2,transparent:true,opacity:0}));p.userData.full=1;
       p.position.set(o*.34,-Math.abs(o)*.05,-i*.02);p.rotation.z=-o*.09;group.add(p);};
     img.src=src;});}
 MEMORIES.forEach(m=>{m.sp='bogwang';const c=makeCapsule(m);c.photo=m.src||drawPhoto(m);addPrints(c,[c.photo],(m.src?'기록 · ':'예시 · ')+m.title);});
@@ -757,15 +808,51 @@ function tryCapsule(x,y){
   if(Math.hypot(cp.x-p.x,cp.z-p.z)<2.4){openCard(cap);return true;}
   const [cx,cz]=clampToArea(cp.x+(p.x-cp.x)*.15,cp.z+Math.sign(p.z-cp.z)*1.2);me.target=new THREE.Vector3(cx,floorAt(cx,cz),cz);pendingCap=cap;
   marker.position.x=cx;marker.position.z=cz;markerT=performance.now();return true;}
+/* opening: the bead swells and bursts into sparks, then the photo rises out of it */
+function makeBurst(cap){const n=18,pos=new Float32Array(n*3),vel=[];
+  for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,u=Math.random()*2-1,r=Math.sqrt(1-u*u),sp=rnd(1.4,2.6);vel.push([Math.cos(a)*r*sp,u*sp*.8+.6,Math.sin(a)*r*sp]);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  const pts=new THREE.Points(g,new THREE.PointsMaterial({map:GLOW,color:cap.m.hue,size:.16,transparent:true,opacity:1,depthWrite:false,blending:THREE.AdditiveBlending}));
+  pts.frustumCulled=false;cap.root.add(pts);return {pts,vel,age:0};}
+function tone(out,at,freq,vol,dec,atk){const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,at);g.gain.linearRampToValueAtTime(vol,at+(atk||.004));g.gain.exponentialRampToValueAtTime(.0001,at+dec);
+  o.connect(g);g.connect(out);o.start(at);o.stop(at+dec+.05);return o;}
+/* a long, airy hall for the crystal's afterglow */
+let hallVerb=null;
+function crystalHall(){if(hallVerb)return hallVerb;const len=Math.floor(ac.sampleRate*4.5),ir=ac.createBuffer(2,len,ac.sampleRate);
+  for(let c=0;c<2;c++){const d=ir.getChannelData(c);let lp=0;for(let i=0;i<len;i++){const n=Math.random()*2-1;lp+=(n-lp)*.35;d[i]=lp*Math.pow(1-i/len,2.2);}}
+  const cv=ac.createConvolver();cv.buffer=ir;const g=ac.createGain();g.gain.value=.9;cv.connect(g);g.connect(master);hallVerb=cv;return cv;}
+function crystalOut(wet){const out=ac.createGain();out.connect(master);const w=ac.createGain();w.gain.value=wet;out.connect(w);w.connect(crystalHall());return out;}
+/* opening a memory: one transparent crystal note with a faint octave below, floating out into a soft hall */
+function popSound(){if(!soundOn||!ac)return;const t0=ac.currentTime,o=crystalOut(1.6),b=1568;
+  tone(o,t0,b,.1,4.8,.003);tone(o,t0,b*2.003,.012,1.8,.003);tone(o,t0,b*.5,.015,2.5,.02);}
+const easeOutBack=x=>{const c1=1.5,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2);};
+const easeOut=x=>1-Math.pow(1-x,3);
 function updateCaps(dt,now){
   const p=me.root.position;let nearest=null,nd=1e9;
   caps.forEach(cap=>{
     const active=cap.m.year===year&&(cap.m.sp||'bogwang')===space&&!trans;cap.root.visible=cap.tint.visible=active;const cp=cap.root.position;const d=Math.hypot(cp.x-p.x,cp.y-1-p.y,cp.z-p.z);
-    if(!reduce){cap.crystal.rotation.y+=dt*.8;cap.crystal.position.y=Math.sin(t*1.4+cap.phase)*.08;}
+    const want=cap===openCap?1:0,was=cap.k;
+    cap.k=reduce?want:Math.min(1,Math.max(0,cap.k+(want?dt/1.1:-dt/.6)));
+    if(was===0&&cap.k>0&&want){if(!reduce){if(cap.burst)cap.root.remove(cap.burst.pts);cap.burst=makeBurst(cap);}popSound();}
+    const k=cap.k,pop=Math.min(1,k/.22);
+    if(!reduce){cap.orb.position.y=Math.sin(t*(1+cap.phase*.12)+cap.phase)*.11;
+      cap.motes.forEach(s=>{const u=s.userData,a=t*u.sp+u.off;s.position.set(Math.cos(a)*u.r,Math.sin(a*1.3+u.tilt)*.12,Math.sin(a)*u.r);});
+      cap.core.scale.setScalar(.4+Math.sin(t*2.2+cap.phase)*.05);}
+    /* swell, then gone; reforms when the card closes */
+    cap.orb.scale.setScalar(want?1+easeOut(pop)*.9:1+k*.6);
+    const orbA=want?1-pop:1-k;cap.shell.material.uniforms.uOpacity.value=orbA;cap.core.material.opacity=.95*orbA;cap.motes.forEach(s=>s.material.opacity=.9*orbA);
+    if(cap.burst){const b=cap.burst;b.age+=dt;const a=b.pts.geometry.attributes.position;
+      for(let i=0;i<b.vel.length;i++){const v=b.vel[i];a.array[i*3]=v[0]*b.age;a.array[i*3+1]=v[1]*b.age-1.2*b.age*b.age;a.array[i*3+2]=v[2]*b.age;}
+      a.needsUpdate=true;b.pts.material.opacity=Math.max(0,1-b.age/.9);if(b.age>.9){cap.root.remove(b.pts);b.pts.geometry.dispose();cap.burst=null;}}
     const close=Math.max(0,1-d/7);
-    if(cap.print){const wp=cap.root.position;cap.print.rotation.y=Math.atan2(camera.position.x-wp.x,camera.position.z-wp.z);
-      cap.print.scale.setScalar(1+Math.max(0,1-d/6)*.5);cap.print.position.y=1.05+(reduce?0:Math.sin(t*1.1+cap.phase)*.06);}
-    cap.glow.material.opacity=.55+close*.4+(reduce?0:Math.sin(t*2+cap.phase)*.08);
+    if(cap.print){const pr=Math.max(0,Math.min(1,(k-.18)/.82)),e=want?easeOutBack(pr):easeOut(pr);
+      cap.print.visible=pr>.001;
+      if(cap.print.visible){const wp=cap.root.position;cap.print.rotation.y=Math.atan2(camera.position.x-wp.x,camera.position.z-wp.z);
+        cap.print.scale.setScalar(Math.max(.001,e*(1+Math.max(0,1-d/6)*.15)));
+        cap.print.position.y=.15+easeOut(pr)*Math.max(1.05,2.3-cap.root.position.y)+(reduce?0:Math.sin(t*1.1+cap.phase)*.05*pr);
+        cap.print.children.forEach(c=>{if(c.material&&c.userData.full!=null)c.material.opacity=c.userData.full*Math.min(1,pr*1.6);});}}
+    cap.glow.material.opacity=(.4+close*.35+(reduce?0:Math.sin(t*2+cap.phase)*.07))*(1-.6*k);
     cap.tint.material.opacity=(cap.opened?.32:.14)+close*.1;
     if(active&&d<nd){nd=d;nearest=cap;}
     if(cap.gain&&ac){let g=active?close*close*.6:0;
@@ -842,7 +929,9 @@ function standUp(){if(!seat)return;const p=me.root.position;p.z+=.45;p.y=floorAt
 function toggleSit(){if(seat)standUp();else if(space==='theater'&&isIndoor)sitDown(nearSeat(me.root.position));}
 const sitBtn=document.getElementById('sitBtn');let sitShown='';
 sitBtn.addEventListener('click',()=>{toggleSit();sitBtn.blur();});
-function updateSitBtn(){const hs=space==='theater'?'의자를 누르거나 F를 누르면 앉아요 · 마우스로 끌어서 둘러보기':'빛 캡슐을 누르면 기억이 열려요 · 오른쪽 위 시점 버튼이나 V 키로 1인칭 · 오른쪽에서 연도 바꾸기';const he=document.querySelector('#hint span');if(he&&he.textContent!==hs){he.textContent=hs;if(space==='theater'){hintGone=false;document.getElementById('hint').style.opacity=1;}}const st=seat?'up':(space==='theater'&&isIndoor&&!switching&&nearSeat(me.root.position))?'down':'';
+const TOUCH=matchMedia('(pointer:coarse)').matches;
+function updateSitBtn(){const hs=TOUCH?(space==='theater'?'의자를 누르면 앉아요 · 끌어서 둘러보기':'빛 캡슐을 누르면 기억이 열려요'):
+  space==='theater'?'의자를 누르거나 F를 누르면 앉아요 · 마우스로 끌어서 둘러보기':'빛 캡슐을 누르면 기억이 열려요 · 오른쪽 위 시점 버튼이나 V 키로 1인칭 · 오른쪽에서 연도 바꾸기';const he=document.querySelector('#hint span');if(he&&he.textContent!==hs){he.textContent=hs;if(space==='theater'){hintGone=false;document.getElementById('hint').style.opacity=1;}}const st=seat?'up':(space==='theater'&&isIndoor&&!switching&&nearSeat(me.root.position))?'down':'';
   if(st===sitShown)return;sitShown=st;sitBtn.hidden=!st;sitBtn.textContent=st==='up'?'일어나기 (F)':'자리에 앉기 (F)';}
 const pts=new Map();let down=null,pinch0=0,d0=0;
 const marker=new THREE.Mesh(new THREE.RingGeometry(.28,.34,40),new THREE.MeshBasicMaterial({color:0xf4e7c4,transparent:true,opacity:0,depthWrite:false}));
@@ -866,7 +955,7 @@ function walkTo(x,y){if(tryCapsule(x,y)){if(seat)standUp();hide();return;}pendin
   const hit=ray.intersectObjects(space==='theater'?theaterFloors:[ground])[0];if(!hit)return;const [cx,cz]=clampToArea(hit.point.x,hit.point.z);me.target=new THREE.Vector3(cx,floorAt(cx,cz),cz);
   marker.position.set(cx,floorAt(cx,cz)+.03,cz);markerT=performance.now();hide();}
 const keys=new Set();
-addEventListener('keydown',e=>{if(e.target.closest&&e.target.closest('button,input,textarea,select'))return;const k=e.key.toLowerCase();
+addEventListener('keydown',e=>{if(!document.getElementById('intro').hidden)return;if(e.target.closest&&e.target.closest('button,input,textarea,select'))return;const k=e.key.toLowerCase();
   if(['w','a','s','d','q','e','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){firstGesture();keys.add(k);e.preventDefault();hide();}
   else if(['1','2','3','4'].includes(k)){setYear(ORDER[+k-1]);}
   else if(k==='f'){firstGesture();toggleSit();hide();}
@@ -910,12 +999,35 @@ function storeMat(tex,sat,dim){const m=new THREE.MeshStandardMaterial({map:tex,r
 const HIDDEN=new THREE.MeshBasicMaterial({visible:false});
 function loadTex(url){return new Promise((res,rej)=>new THREE.TextureLoader().load(url,t=>{t.encoding=THREE.sRGBEncoding;t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=4;res(t);},undefined,rej));}
 const loadNote=document.getElementById('loadNote');
+/* text download that reports how far along it is; `expect` is the file size, since the host may not say */
+async function fetchText(url,expect,onp){const r=await fetch(url);if(!r.ok)throw new Error(r.status);
+  if(!r.body||!onp)return r.text();const rd=r.body.getReader(),parts=[];let n=0;
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);n+=value.length;onp(Math.min(1,n/expect));}
+  return new TextDecoder().decode(await new Blob(parts).arrayBuffer());}
+/* the way in */
+const introEl=document.getElementById('intro'),introGo=document.getElementById('introGo'),introMute=document.getElementById('introMute');
+let introSeen=false;try{introSeen=localStorage.getItem('memmap-intro')==='1';}catch(e){}
+function introProgress(p){document.getElementById('introBar').style.width=Math.round(p*100)+'%';}
+const introAt=performance.now();
+let introDone=false;
+/* the door opens once the alley is ready and the three lines have been read (sooner for returning walkers) */
+function introReady(){if(introDone)return;introDone=true;introProgress(1);
+  const wait=Math.max(0,(introSeen?1600:4600)-(performance.now()-introAt));
+  setTimeout(()=>{document.getElementById('introStatus').textContent='들어갈 수 있어요';document.querySelector('.introBtns').classList.add('on');
+    introGo.disabled=introMute.disabled=false;if(!introEl.hidden)introGo.focus({preventScroll:true});},wait);}
+setTimeout(introReady,30000); /* never keep anyone at the door */
+function enter(withSound){if(introEl.classList.contains('out'))return;
+  if(withSound)firstGesture();else soundAsked=true;
+  try{localStorage.setItem('memmap-intro','1');}catch(e){}
+  introEl.classList.add('out');setTimeout(()=>{introEl.hidden=true;},750);}
+introGo.addEventListener('click',()=>enter(true));
+introMute.addEventListener('click',()=>enter(false));
 async function loadGameBuildings(){
-  if(!THREE.FBXLoader||!window.fflate){loadNote.textContent='';return;}
+  if(!THREE.FBXLoader||!window.fflate){loadNote.textContent='';introReady();return;}
   try{
     const [buf,bricks,store]=await Promise.all([
       /* the model ships gzipped and written as text, the way the page host accepts it */
-      fetch('assets/bricktown/Buildings.fbx.gz.txt').then(r=>{if(!r.ok)throw new Error(r.status);return r.text();}).then(b64=>{
+      fetchText('assets/bricktown/Buildings.fbx.gz.txt',674636,p=>introProgress(p*.92)).then(b64=>{
         const bin=atob(b64.trim()),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
         const raw=fflate.gunzipSync(u);return raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);}),
       loadTex('assets/bricktown/bricks.jpg'),loadTex('assets/bricktown/store.jpg')]);
@@ -948,6 +1060,7 @@ async function loadGameBuildings(){
     });
     loadNote.textContent='건물: Bricktown (loafbrr)';
   }catch(err){console.warn('game buildings',err);loadNote.textContent='게임 건물을 불러오지 못해 기본 건물로 보여줘요';}
+  introReady();
 }
 loadGameBuildings();
 
@@ -993,10 +1106,10 @@ function updatePeers(dt){
       gp.x+=(tx-gp.x)*Math.min(1,dt*8);gp.z+=(tz-gp.z)*Math.min(1,dt*8);gp.y=pr.k===1&&num(pr.h)?pr.h:floorAt(gp.x,gp.z);if(num(pr.f))r.g.face=pr.f;});
     [...remotes.keys()].forEach(id=>{if(!seen.has(id))dropRemote(id);});
   }
-  const alone=here===0;others.forEach(o=>o.root.visible=alone);
-  const total=1+(alone?others.length:here);
+  others.forEach(o=>o.root.visible=true); /* demo: the example walkers stay alongside real visitors */
+  const total=1+here+others.length;
   if(countEl.textContent!==String(total))countEl.textContent=total;
-  hereEl.title=alone?'예시 방문자 3명 포함':'지금 같은 해, 같은 방에 있는 사람';
+  hereEl.title='예시 방문자 '+others.length+'명 포함';
 }
 function remoteGhosts(){return [...remotes.values()].map(r=>r.g);}
 (async()=>{
@@ -1196,7 +1309,7 @@ const theaterG=new THREE.Group();theaterG.visible=false;scene.add(theaterG);
 const theaterFloors=[],theaterChairs=[];let theaterReady=null;
 const reel=document.createElement('video');reel.loop=true;reel.muted=true;reel.playsInline=true;reel.preload='none';reel.setAttribute('playsinline','');
 const TEXN=['EtcGt','GtChair','GtFloorInner2nd','GtFloorInnerTrim1st','GtFloorInnerTrim3rd','GtGreenTile','GtGround','GtRedFabric','GtStairDoor','GtTheaterConc','GtTheaterSide','GtTheaterWooden','GtTrim','GtWhiteConc','GtWoodTrim','OutterWallGt','PicTex'];
-async function fetchFbx(url,mgr){const t=await fetch(url).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();});
+async function fetchFbx(url,mgr,expect,onp){const t=await fetchText(url,expect,onp);
   const raw=fflate.gunzipSync(b64ToBytes(t));return new THREE.FBXLoader(mgr).parse(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength),'');}
 function loadTheater(){
   if(theaterReady)return theaterReady;
@@ -1218,7 +1331,11 @@ function loadTheater(){
           m=new THREE.MeshStandardMaterial({map:tx,roughness:.85});}
         else m=new THREE.MeshStandardMaterial({color:0x777370,roughness:.9});}
       return cache[name]=m;};
-    const objs=await Promise.all(['Gt_Ground','GwangjuTheater_Exterior','GwangjuTheater_Interior'].map(n=>fetchFbx('assets/gwangju/'+n+'.fbx.gz.txt',mgr)));
+    const sizes={Gt_Ground:16460,GwangjuTheater_Exterior:1090736,GwangjuTheater_Interior:4436684},got={},all=5543880;
+    const note=document.getElementById('fadeNote');
+    const objs=await Promise.all(Object.keys(sizes).map(n=>fetchFbx('assets/gwangju/'+n+'.fbx.gz.txt',mgr,sizes[n],p=>{got[n]=p*sizes[n];
+      const sum=Object.values(got).reduce((a,b)=>a+b,0);note.textContent='광주극장으로 가는 중 · '+Math.min(99,Math.round(sum/all*100))+'%';})));
+    note.textContent='';
     objs.forEach(o=>{o.scale.setScalar(.01);o.traverse(c=>{if(!c.isMesh)return;
       const ms=Array.isArray(c.material)?c.material:[c.material];const nm=ms.map(x=>mat(x.name||''));c.material=nm.length>1?nm:nm[0];
       if(/^Door/.test(c.name))c.visible=false; /* doors stand open */
@@ -1255,7 +1372,7 @@ async function setSpace(sp){
   if(sp===space||switching||trans||!SP[sp])return;switching=true;closeCard();fadeEl.classList.add('on');
   await wait(470);
   if(sp==='theater'){loadNote.textContent='광주극장 불러오는 중…';
-    try{await loadTheater();diag('theater loaded');}catch(err){console.warn('theater',err);showErr('광주극장 불러오기 실패 ('+(err&&(err.code||err.message)||err)+')');loadNote.textContent='광주극장을 불러오지 못했어요. 잠시 뒤 다시 골라 주세요.';fadeEl.classList.remove('on');switching=false;return;}}
+    try{await loadTheater();diag('theater loaded');}catch(err){console.warn('theater',err);document.getElementById('fadeNote').textContent='';showErr('광주극장 불러오기 실패 ('+(err&&(err.code||err.message)||err)+')');loadNote.textContent='광주극장을 불러오지 못했어요. 잠시 뒤 다시 골라 주세요.';fadeEl.classList.remove('on');switching=false;return;}}
   space=sp;AREAS=SP[sp].areas;
   const th=sp==='theater';theaterG.visible=th;ground.visible=!th;motes.visible=!th;
   loadNote.textContent=th?'극장: 광주극장 3D 에셋 · 스크린: 보광동 다큐 기록':'건물: Bricktown (loafbrr)';
