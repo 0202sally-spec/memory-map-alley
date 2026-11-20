@@ -146,7 +146,7 @@ body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:
     <div class="spaceMenu" id="spaceMenu" hidden>
       <button type="button" data-sp="bogwang"><b>보광동 골목</b><span>서울 용산구 · 재개발로 비어 가는 동네</span><i id="cnt-bogwang"></i></button>
       <button type="button" data-sp="theater"><b>광주극장</b><span>광주 동구 · 1935년부터 이어진 단관 극장</span><i id="cnt-theater"></i></button>
-    </div><span class="pmeta"><span id="placeYear">2026</span> · <span id="memCount">기억 3</span></span><span class="quiet"><em id="placeNote">철거를 앞둔 골목</em><span id="verNote">버전 28</span><span id="loadNote"></span></span></div>
+    </div><span class="pmeta"><span id="placeYear">2026</span> · <span id="memCount">기억 3</span></span><span class="quiet"><em id="placeNote">철거를 앞둔 골목</em><span id="verNote">버전 29</span><span id="loadNote"></span></span></div>
   <div class="right">
     <div class="here" title="예시 방문자 3명 포함"><i></i>함께 있는 사람 <b id="count">4</b></div>
     <button class="sound" id="viewBtn" type="button" aria-pressed="false" title="V 키로도 바꿀 수 있어요"><span id="viewLabel">시점: 뒤에서</span></button>
@@ -205,14 +205,62 @@ body{background:var(--fog);color:var(--ink);font-family:var(--f-ui);font-weight:
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function(){
 'use strict';
+/* ---------- outside Claude (e.g. GitHub Pages): Supabase keeps the memories and lets ghosts see each other.
+   The key below is Supabase's public "anon" key; what it may do is limited by the rules set up in Supabase. */
+const SB_URL='https://novqukfeoowwdcbbylzm.supabase.co',SB_KEY='sb_publishable_0K8WL9RmjUTzMNpcptbyww_odjT9jFV';
+const SB_BUCKET='memory-files';
+const inClaude=!!(window.claude&&window.claude.use);
+const sb=!inClaude&&SB_URL&&SB_KEY&&window.supabase?window.supabase.createClient(SB_URL,SB_KEY):null;
+function blobUrl(id){return sb?SB_URL+'/storage/v1/object/public/'+SB_BUCKET+'/'+id:'/_blob/'+id;}
+const hex32=()=>[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
+/* a visitor gets an anonymous id only when they first leave a memory; the browser remembers it */
+async function sbUid(signIn){if(!sb)return null;
+  const {data}=await sb.auth.getSession();if(data&&data.session)return data.session.user.id;
+  if(!signIn)return null;
+  const r=await sb.auth.signInAnonymously();
+  if(r.error)throw {code:r.error.status===429?'rate_limited':'sign_in',message:r.error.message};
+  return r.data.user.id;}
+function sbDb(){return {
+  doc(path){const [col,id]=path.split('/');return {async set(v){if(col!=='memories')return;
+    const {error}=await sb.from('memories').upsert({owner:id,items:v.items,updated_at:new Date().toISOString()});
+    if(error)throw {code:error.code==='42501'?'invalid_argument':'save',message:error.message};}};},
+  collection(){return {onSnapshot(cb,onErr){let t=null;
+    const load=async()=>{const {data,error}=await sb.from('memories').select('owner,items');
+      if(error){if(onErr)onErr(error);return;}
+      cb({docs:data.map(r=>({id:r.owner,data:()=>({items:r.items})}))});};
+    load();
+    sb.channel('memories-db').on('postgres_changes',{event:'*',schema:'public',table:'memories'},()=>{clearTimeout(t);t=setTimeout(load,300);}).subscribe();
+    setInterval(load,60000);}};}};}
+function sbAssets(){return {
+  async upload(blob,opt){const id=hex32();
+    const {error}=await sb.storage.from(SB_BUCKET).upload(id,blob,{contentType:(opt&&opt.type)||blob.type,upsert:false});
+    if(error)throw {code:/too large|exceed/i.test(error.message)?'too_large':/mime/i.test(error.message)?'unsupported_type':'upload',message:error.message};
+    return {id};},
+  async delete(id){await sb.storage.from(SB_BUCKET).remove([id]);}};}
+function sbUser(){return {id:async()=>myUid,profiles:async()=>({}),can:async()=>true,isOwner:()=>false};}
+/* ghosts: each page sends where it stands at most 4 times a second (once every 1.5 s when still) */
+function sbRoom(){
+  const meId=hex32(),peers=new Map();let last=null,lastSend=0,timer=null;
+  const ch=sb.channel('ghosts',{config:{broadcast:{self:false}}});
+  ch.on('broadcast',{event:'p'},({payload})=>{if(!payload||typeof payload.id!=='string'||payload.id===meId||!payload.st)return;
+    peers.set(payload.id,{peer:payload.id,by:null,kind:'viewer',sameTab:false,presence:payload.st,seen:Date.now()});});
+  ch.on('broadcast',{event:'bye'},({payload})=>{if(payload)peers.delete(payload.id);});
+  ch.subscribe();
+  const send=()=>{timer=null;if(!last)return;lastSend=Date.now();ch.send({type:'broadcast',event:'p',payload:{id:meId,st:last}}).catch(()=>{});};
+  setInterval(()=>{const now=Date.now();peers.forEach((p,id)=>{if(now-p.seen>5000)peers.delete(id);});if(now-lastSend>1500&&document.visibilityState==='visible')send();},1000);
+  addEventListener('pagehide',()=>{ch.send({type:'broadcast',event:'bye',payload:{id:meId}}).catch(()=>{});});
+  return {peers:()=>[...peers.values()],
+    presence(st){last=st;const wait=250-(Date.now()-lastSend);if(wait<=0)send();else if(!timer)timer=setTimeout(send,wait);return Promise.resolve();},
+    onPeers(){}};}
 const errBox=document.getElementById('errBox');
 /* a short log of what happened, saved privately for the viewer so problems can be looked at later */
 const DIAG=[];let diagTimer=null;
 function diag(m){DIAG.push(new Date().toISOString().slice(11,19)+' '+String(m).slice(0,200));if(DIAG.length>80)DIAG.shift();
-  clearTimeout(diagTimer);diagTimer=setTimeout(()=>{try{if(db&&myUid)db.doc('data/users/'+myUid+'/debug').set({log:DIAG.slice(),ver:28,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});}catch(e){}},1500);}
+  clearTimeout(diagTimer);diagTimer=setTimeout(()=>{try{if(inClaude&&db&&myUid)db.doc('data/users/'+myUid+'/debug').set({log:DIAG.slice(),ver:29,ua:navigator.userAgent.slice(0,160)}).catch(()=>{});}catch(e){}},1500);}
 let lastErr='';
 /* note every press and key the page actually receives (first 20), to tell missing input from broken features */
 let inputSeen=0;
@@ -614,7 +662,7 @@ function addPrints(cap,srcs,caption){
   const halo=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W*1.9,PRINT_H*1.9),new THREE.MeshBasicMaterial({map:softFrameTex(),color:cap.m.hue,transparent:true,opacity:.42,blending:THREE.AdditiveBlending,depthWrite:false}));
   halo.position.z=-.06;group.add(halo);
   const list=srcs.slice(0,5);
-  list.forEach((src,i)=>{const img=new Image();img.decoding='async';
+  list.forEach((src,i)=>{const img=new Image();img.crossOrigin='anonymous';img.decoding='async';
     img.onload=()=>{if(!caps.includes(cap))return;const o=i===0?0:(i%2?1:-1)*Math.ceil(i/2);
       const p=new THREE.Mesh(new THREE.PlaneGeometry(PRINT_W,PRINT_H),new THREE.MeshBasicMaterial({map:printTex(img,caption),color:0xe2ddd2}));
       p.position.set(o*.34,-Math.abs(o)*.05,-i*.02);p.rotation.z=-o*.09;group.add(p);};
@@ -658,7 +706,7 @@ function playLoop(cap,buffer,filter){if(!ac||cap.gain)return;const src=ac.create
   node.connect(g);g.connect(master);src.start(0,Math.random()*buffer.duration);cap.gain=g;cap.src=src;}
 function attachVoice(cap){if(!ac||cap.gain||cap.loading)return;
   if(cap.m.soundAsset){cap.loading=true;
-    fetch('/_blob/'+cap.m.soundAsset).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();})
+    fetch(blobUrl(cap.m.soundAsset)).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();})
       .then(t=>ac.decodeAudioData(b64ToBytes(t).buffer)).then(buf=>{if(caps.includes(cap))playLoop(cap,buf,false);})
       .catch(e=>console.warn('memory sound',e)).finally(()=>{cap.loading=false;});return;}
   if(cap.m.sound)playLoop(cap,makeBuffer(cap.m.sound),cap.m.sound.startsWith('radio'));}
@@ -681,10 +729,10 @@ function openCard(cap){
   $('cardThumbs').replaceChildren();$('cardThumbs').hidden=photos.length<2;
   if(m.user){
     $('cardFig').hidden=!photos.length;$('cardCap').hidden=true;
-    if(photos.length)showPhoto('/_blob/'+photos[0],'사진: '+m.title);
-    photos.forEach((id,i)=>{const b=document.createElement('button');b.type='button';b.style.backgroundImage=`url("/_blob/${id}")`;
+    if(photos.length)showPhoto(blobUrl(photos[0]),'사진: '+m.title);
+    photos.forEach((id,i)=>{const b=document.createElement('button');b.type='button';b.style.backgroundImage=`url("${blobUrl(id)}")`;
       b.setAttribute('aria-label',`사진 ${i+1}`);b.setAttribute('aria-pressed',String(i===0));
-      b.onclick=()=>{showPhoto('/_blob/'+id,'사진: '+m.title);[...$('cardThumbs').children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));};$('cardThumbs').appendChild(b);});
+      b.onclick=()=>{showPhoto(blobUrl(id),'사진: '+m.title);[...$('cardThumbs').children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));};$('cardThumbs').appendChild(b);});
     $('cardTag').textContent=m.owner===myUid?'내 기억':'남겨진 기억';
   }else{
     if(!cap.photo)cap.photo=drawPhoto(m);
@@ -952,8 +1000,8 @@ function updatePeers(dt){
 }
 function remoteGhosts(){return [...remotes.values()].map(r=>r.g);}
 (async()=>{
-  if(!(window.claude&&window.claude.use))return;
-  try{[room,userCap]=await Promise.all([claude.use('room'),claude.use('user')]);}catch(e){room=null;}
+  if(!inClaude){if(!sb)return;room=sbRoom();userCap=userCap||sbUser();}
+  else{try{[room,userCap]=await Promise.all([claude.use('room'),claude.use('user')]);}catch(e){room=null;}}
   if(!room)return;
   room.onPeers(()=>{},()=>{room=null;remotes.forEach((_,id)=>dropRemote(id));placeLabel();});
   placeLabel();sendPresence(true);
@@ -991,7 +1039,7 @@ function syncMemories(snap){
   if(!snap.docs.some(d=>d.id===myUid))myItems=[];
   userCaps.forEach((cap,key)=>{const m=next.get(key);if(!m||JSON.stringify(m)!==JSON.stringify(cap.m)){removeCapsule(cap);userCaps.delete(key);}});
   next.forEach((m,key)=>{if(userCaps.has(key))return;const cap=makeCapsule(m);userCaps.set(key,cap);attachVoice(cap);
-    if(m.photos.length)addPrints(cap,m.photos.map(id=>'/_blob/'+id),m.title);
+    if(m.photos.length)addPrints(cap,m.photos.map(id=>blobUrl(id)),m.title);
     if(pendingOpen===key){pendingOpen=null;if(m.year!==year)setYear(m.year);setTimeout(()=>openCard(cap),m.year!==year?T*1000+100:0);}});
   refreshMemCount();}
 
@@ -1002,7 +1050,8 @@ function openLeave(){$('fYear').value=String(year===2026?2026:year);$('fErr').te
   scrimEl.hidden=false;setTimeout(()=>$('fTitle').focus(),30);}
 function closeLeave(){scrimEl.hidden=true;}
 let canWrite=null;
-$('fab').addEventListener('click',()=>{diag('fab db='+!!db+' uid='+!!myUid+' canWrite='+canWrite);
+$('fab').addEventListener('click',async()=>{diag('fab db='+!!db+' uid='+!!myUid+' canWrite='+canWrite);
+  if(sb&&db&&!myUid){try{myUid=await sbUid(true);}catch(e){console.warn('sign in',e);toastErr('지금은 기억을 남길 수 없어요. 잠깐 뒤에 다시 시도해 주세요.');return;}}
   if(!db){toastErr(window.claude?'Claude에 로그인한 상태에서만 기억을 남길 수 있어요.':'이 주소에서는 아직 기억을 저장할 수 없어요. 기억 저장은 준비 중이에요.');return;}
   if(!myUid){toastErr('Claude에 로그인한 상태에서만 기억을 남길 수 있어요.');return;}
   if(canWrite===false){toastErr('이 페이지에서 기억을 남길 권한이 없어요. 페이지 주인에게 편집 권한을 받아야 해요.');return;}if(myItems.length>=MAX_MINE){toastErr('기억은 한 사람당 '+MAX_MINE+'개까지 남길 수 있어요. 오래된 기억을 지우면 새로 남길 수 있어요.');return;}openLeave();});
@@ -1068,7 +1117,11 @@ $('cardDelete').addEventListener('click',async()=>{
   catch(err){b.textContent='지우지 못했어요';}finally{b.disabled=false;}});
 
 (async()=>{
-  if(!(window.claude&&window.claude.use)){$('fab').hidden=false;return;} /* a downloaded copy: the button explains */
+  if(!inClaude){ /* GitHub Pages and other copies: Supabase when it is set up, otherwise the button explains */
+    if(sb){db=sbDb();assetsCap=sbAssets();userCap=userCap||sbUser();canWrite=true;
+      try{myUid=await sbUid(false);}catch(e){myUid=null;}
+      db.collection('memories').onSnapshot(syncMemories,err=>console.warn('memories',err&&err.message));}
+    $('fab').hidden=false;return;}
   let u;
   try{[db,assetsCap,u]=await Promise.all([claude.use('db'),claude.use('assets'),claude.use('user')]);}catch(e){return;}
   if(!db){$("fab").hidden=false;return;} /* explains on click that saving needs sign-in */
